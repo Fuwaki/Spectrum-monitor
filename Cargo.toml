@@ -1,0 +1,21 @@
+[package]
+name = "music_play"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.95"
+cpal = "0.15.3"
+eframe = "0.30.0"
+egui = "0.30.0"
+egui-wgpu = "0.30.0"
+egui-winit = "0.30.0"
+env_logger = "0.11.6"
+pollster = "0.4.0"
+rustfft = "6.2.0"
+tokio = { version = "1.43.0", features = ["full", "macros", "rt-multi-thread"] }
+wgpu = "24.0.1"
+winit = "0.30.8"
+# egui-wgpu = "0.30.0"
+# wgpu = "24.0.1"
+# winit = "0.30.8"
