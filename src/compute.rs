@@ -1,17 +1,31 @@
+use std::f32::MANTISSA_DIGITS;
 use std::u8;
 
 use crate::wgpu_app::WGPUState;
-use egui_wgpu::wgpu::{self, BindGroupLayoutEntry, ShaderStages, TextureUsages};
+use cpal::Sample;
+
+use egui_wgpu::wgpu::util::{BufferInitDescriptor, DeviceExt};
+use egui_wgpu::wgpu::{
+    self, BindGroupLayoutEntry, BufferBinding, BufferUsages, Queue, ShaderStages, TextureUsages
+};
 use egui_wgpu::wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, ComputePass, ComputePassDescriptor,
     ComputePipelineDescriptor, Texture, TextureDescriptor, TextureViewDescriptor,
 };
-
+const MAX_BUFFER_SIZE:usize=4096;
 pub struct Compute {
     textures: [wgpu::Texture; 2],
     current_index: u8,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
+    sample_buffer: wgpu::Buffer,
+    buffer_size: usize,
+}
+#[repr(C)]
+#[derive(Clone, Copy,Debug,bytemuck::Pod,bytemuck::Zeroable)]
+pub struct SampleData{
+    data:[f32;MAX_BUFFER_SIZE],
+    length:u32
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>) -> Texture {
@@ -30,9 +44,34 @@ impl Compute {
             view_formats: &[],
         })
     }
-    pub fn new(state: &WGPUState) -> Self {
+    pub fn update_data(&self,queue:&Queue,data:&[f32]){
+        assert!(data.len()<MAX_BUFFER_SIZE,"数据超过最大缓冲区");
+        let d=SampleData{
+            data: {
+                let mut array = [0.0; MAX_BUFFER_SIZE];
+                array[..data.len()].copy_from_slice(data);
+                array
+            },
+            length: data.len() as u32,
+        };
+        queue.write_buffer(&self.sample_buffer, 0, bytemuck::bytes_of(&d));
+        queue.submit([]);
+    }
+
+    pub fn new(state: &WGPUState, buffer_size: usize) -> Self {
+        //初始化缓冲区的数据
+        let mut data=SampleData{
+            data:[0.0;MAX_BUFFER_SIZE],
+            length:MAX_BUFFER_SIZE as u32
+        };
+
         let texture_a = Self::create_texture(state, Some("texture_a"));
         let texture_b = Self::create_texture(state, Some("texture_b"));
+        let sample_buffer = state.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("AudioSample Buffer"),
+            contents: bytemuck::bytes_of(&data), //把数据填进去
+            usage: BufferUsages::STORAGE|BufferUsages::COPY_DST,
+        });
         let bind_group_layout =
             state
                 .device
@@ -61,6 +100,17 @@ impl Compute {
                             },
                             count: None,
                         },
+                        //音频频谱数据
+                        BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
                     ],
                 });
 
@@ -68,6 +118,7 @@ impl Compute {
         let compute_shader = state
             .device
             .create_shader_module(include_wgsl!("draw.wgsl"));
+
         //计算管线布局
         let pipeline_layout =
             state
@@ -77,6 +128,8 @@ impl Compute {
                     bind_group_layouts: &[&bind_group_layout], // 使用之前创建的绑定组布局
                     push_constant_ranges: &[],
                 });
+
+
         //计算管线
         let compute_pipline = state
             .device
@@ -88,23 +141,20 @@ impl Compute {
                 compilation_options: Default::default(),
                 cache: None,
             });
-
         Self {
             textures: [texture_a, texture_b],
             current_index: 0,
             pipeline: compute_pipline,
             bind_group_layout,
+            sample_buffer,
+            buffer_size,
         }
     }
     pub fn on_resize(&mut self, state: &WGPUState) {
         self.textures[0] = Self::create_texture(state, Some("texture_a"));
         self.textures[1] = Self::create_texture(state, Some("texture_b"));
     }
-    pub fn update(
-        &mut self,
-        state: &WGPUState,
-        encoder: &mut wgpu::CommandEncoder,
-    ) -> &egui_wgpu::wgpu::Texture {
+    pub fn update(&mut self, state: &WGPUState, encoder: &mut wgpu::CommandEncoder) {
         let current_texture = &self.textures[(self.current_index % 2) as usize];
         let history_texture = &self.textures[(1 - self.current_index % 2) as usize];
         let current_view = current_texture.create_view(&TextureViewDescriptor::default());
@@ -121,10 +171,18 @@ impl Compute {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&history_view),
                 },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(BufferBinding {
+                        buffer: &self.sample_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
             ],
             label: Some("compute_bind_group"),
         });
-        const workgroup_size: (u32, u32) = (32, 8); //和计算着色器中保持一致
+        const WORKGROUP_SIZE: (u32, u32) = (32, 8); //和计算着色器中保持一致
 
         //开始计算
         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
@@ -138,11 +196,15 @@ impl Compute {
         工作组大小是一个工作组处理多少个线程
         然后dispatch是指定在各个维度创建多少个工作组
         */
-        let dispatch_x = (state.surface_config.width + workgroup_size.0 - 1) / workgroup_size.0;
-        let dispatch_y = (state.surface_config.height + workgroup_size.1 - 1) / workgroup_size.1;
+        let dispatch_x = (state.surface_config.width + WORKGROUP_SIZE.0 - 1) / WORKGROUP_SIZE.0;
+        let dispatch_y = (state.surface_config.height + WORKGROUP_SIZE.1 - 1) / WORKGROUP_SIZE.1;
         compute_pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
         self.current_index += 1;
         self.current_index %= 2;
+    }
+    pub fn output(&self) -> &egui_wgpu::wgpu::Texture {
+        //返回上一次绘制完的 也就是这一次为“历史”的
+        let current_texture = &self.textures[(1 - self.current_index % 2) as usize];
         current_texture
     }
 }

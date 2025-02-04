@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+bytemuck = "1.21.0"
 cpal = "0.15.3"
 egui = "0.30.0"
 egui-wgpu = "0.30.0"

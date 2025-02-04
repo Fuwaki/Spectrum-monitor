@@ -118,6 +118,7 @@ impl EguiApp {
                 label: Some("egui main render pass"),
                 occlusion_query_set: None,
             });
+            
             self.render.render(
                 &mut rpass.forget_lifetime(),
                 &trangles,

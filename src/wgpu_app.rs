@@ -1,13 +1,18 @@
-use std::sync::Arc;
+use core::time;
+use std::{
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{compute::Compute, egui_app::EguiApp, wgpu_helper::load_img};
 use egui_wgpu::{
     wgpu::{
-        self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites,
-        PipelineCompilationOptions, RenderPipeline,
+        self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites, Features,
+        Limits, PipelineCompilationOptions, RenderPipeline,
     },
     ScreenDescriptor,
 };
+use rand::random;
 use winit::{event::WindowEvent, window::Window};
 
 pub struct WGPUState<'window> {
@@ -48,20 +53,21 @@ impl<'window> WGPUState<'window> {
             )
             .await
             .expect("找不到一个device");
+
         //配置surface
         let size = window.inner_size();
 
         let mut surface_config = surface
             .get_default_config(&adapter, size.width, size.height)
             .expect("找不到一个surface_config");
-        surface_config.present_mode = wgpu::PresentMode::AutoVsync;
+        // surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &surface_config); //使用设备配置surface
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
             pixels_per_point: window.scale_factor() as f32 * 1.3,
         };
 
-        let (_, texture_view, sampler) = load_img(&device, &queue);
+        // let (_, texture_view, sampler) = load_img(&device, &queue);
 
         //渲染管线配置
         let bindgroup_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -91,7 +97,6 @@ impl<'window> WGPUState<'window> {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
-
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("pipeline_layout"),
             bind_group_layouts: &[&bindgroup_layout],
@@ -161,7 +166,7 @@ impl<'a> WGPUAPP<'a> {
             None,
             1,
         ));
-        self.audio_compute = Some(Compute::new(self.state.as_ref().unwrap()));
+        self.audio_compute = Some(Compute::new(self.state.as_ref().unwrap(), 1024));
     }
     pub fn on_event(&mut self, window: &Window, e: &WindowEvent) {
         if let Some(r) = self.appgui.as_mut() {
@@ -199,13 +204,31 @@ impl<'a> WGPUAPP<'a> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        //先执行计算的pass
-        let texture = self
-            .audio_compute
-            .as_mut()
-            .unwrap()
-            .update(state, &mut encoder);
+        //如果有新数据 上计算pass
+        if true {
+            let start = SystemTime::now();
+            let since_the_epoch = start
+                .duration_since(UNIX_EPOCH)
+                .expect("Time went backwards");
+            let ms = since_the_epoch.as_secs() * 1000 + since_the_epoch.subsec_millis() as u64;
+            let t: Vec<f32> = (1..4096)
+                .into_iter()
+                .map(|x| f64::sin((x as f64 + ms as f64)/20.0)as f32)
+                .collect();
+            // println!("{:?}",t);
+            //先更新数据
+            self.audio_compute
+                .as_mut()
+                .unwrap()
+                .update_data(&state.queue, t.as_slice());
+            self.audio_compute
+                .as_mut()
+                .unwrap()
+                .update(state, &mut encoder);
+        }
 
+        //把计算pass得到的纹理变成sampler
+        let texture = self.audio_compute.as_mut().unwrap().output();
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -257,14 +280,9 @@ impl<'a> WGPUAPP<'a> {
             render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..3, 0..1);
         }
+        self.appgui.as_mut().unwrap().update(state)(&mut encoder, &view); //最后渲染的是ui
 
-        self.appgui.as_mut().unwrap().update(state)(&mut encoder, &view);
-
-        self.state
-            .as_mut()
-            .unwrap()
-            .queue
-            .submit(std::iter::once(encoder.finish()));
+        state.queue.submit(std::iter::once(encoder.finish())); //提交
         output.present();
         // state.device.poll(wgpu::Maintain::Wait); // 阻塞直到计算完成（仅限非 Web 平台）
     }
