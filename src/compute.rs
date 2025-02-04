@@ -1,31 +1,28 @@
-use std::f32::MANTISSA_DIGITS;
 use std::u8;
 
 use crate::wgpu_app::WGPUState;
-use cpal::Sample;
 
 use egui_wgpu::wgpu::util::{BufferInitDescriptor, DeviceExt};
 use egui_wgpu::wgpu::{
-    self, BindGroupLayoutEntry, BufferBinding, BufferUsages, Queue, ShaderStages, TextureUsages
+    self, BindGroupLayoutEntry, BufferBinding, BufferUsages, Queue, ShaderStages,
 };
 use egui_wgpu::wgpu::{
-    include_wgsl, BindGroupDescriptor, BindGroupEntry, ComputePass, ComputePassDescriptor,
+    include_wgsl, BindGroupDescriptor, BindGroupEntry, ComputePassDescriptor,
     ComputePipelineDescriptor, Texture, TextureDescriptor, TextureViewDescriptor,
 };
-const MAX_BUFFER_SIZE:usize=4096;
+const MAX_BUFFER_SIZE: usize = 4096;
 pub struct Compute {
     textures: [wgpu::Texture; 2],
     current_index: u8,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sample_buffer: wgpu::Buffer,
-    buffer_size: usize,
 }
 #[repr(C)]
-#[derive(Clone, Copy,Debug,bytemuck::Pod,bytemuck::Zeroable)]
-pub struct SampleData{
-    data:[f32;MAX_BUFFER_SIZE],
-    length:u32
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct SampleData {
+    data: [f32; MAX_BUFFER_SIZE],
+    length: u32,
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>) -> Texture {
@@ -44,9 +41,9 @@ impl Compute {
             view_formats: &[],
         })
     }
-    pub fn update_data(&self,queue:&Queue,data:&[f32]){
-        assert!(data.len()<MAX_BUFFER_SIZE,"数据超过最大缓冲区");
-        let d=SampleData{
+    pub fn update_data(&self, queue: &Queue, data: &[f32]) {
+        assert!(data.len() < MAX_BUFFER_SIZE, "数据超过最大缓冲区");
+        let d = SampleData {
             data: {
                 let mut array = [0.0; MAX_BUFFER_SIZE];
                 array[..data.len()].copy_from_slice(data);
@@ -60,9 +57,9 @@ impl Compute {
 
     pub fn new(state: &WGPUState, buffer_size: usize) -> Self {
         //初始化缓冲区的数据
-        let mut data=SampleData{
-            data:[0.0;MAX_BUFFER_SIZE],
-            length:MAX_BUFFER_SIZE as u32
+        let mut data = SampleData {
+            data: [0.0; MAX_BUFFER_SIZE],
+            length: MAX_BUFFER_SIZE as u32,
         };
 
         let texture_a = Self::create_texture(state, Some("texture_a"));
@@ -70,7 +67,7 @@ impl Compute {
         let sample_buffer = state.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("AudioSample Buffer"),
             contents: bytemuck::bytes_of(&data), //把数据填进去
-            usage: BufferUsages::STORAGE|BufferUsages::COPY_DST,
+            usage: BufferUsages::STORAGE | BufferUsages::COPY_DST,
         });
         let bind_group_layout =
             state
@@ -128,7 +125,6 @@ impl Compute {
                     bind_group_layouts: &[&bind_group_layout], // 使用之前创建的绑定组布局
                     push_constant_ranges: &[],
                 });
-
 
         //计算管线
         let compute_pipline = state

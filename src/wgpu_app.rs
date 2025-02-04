@@ -1,18 +1,16 @@
-use core::time;
 use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{compute::Compute, egui_app::EguiApp, wgpu_helper::load_img};
+use crate::{compute::Compute, egui_app::EguiApp};
 use egui_wgpu::{
     wgpu::{
-        self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites, Features,
-        Limits, PipelineCompilationOptions, RenderPipeline,
+        self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites,
+        PipelineCompilationOptions, RenderPipeline,
     },
     ScreenDescriptor,
 };
-use rand::random;
 use winit::{event::WindowEvent, window::Window};
 
 pub struct WGPUState<'window> {
@@ -60,7 +58,7 @@ impl<'window> WGPUState<'window> {
         let mut surface_config = surface
             .get_default_config(&adapter, size.width, size.height)
             .expect("找不到一个surface_config");
-        // surface_config.present_mode = wgpu::PresentMode::AutoVsync;
+        surface_config.present_mode = wgpu::PresentMode::AutoVsync;
         surface.configure(&device, &surface_config); //使用设备配置surface
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
@@ -213,7 +211,7 @@ impl<'a> WGPUAPP<'a> {
             let ms = since_the_epoch.as_secs() * 1000 + since_the_epoch.subsec_millis() as u64;
             let t: Vec<f32> = (1..4096)
                 .into_iter()
-                .map(|x| f64::sin((x as f64 + ms as f64)/20.0)as f32)
+                .map(|x| f64::sin((x as f64 + ms as f64) / 20.0) as f32)
                 .collect();
             // println!("{:?}",t);
             //先更新数据
