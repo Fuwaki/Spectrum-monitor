@@ -3,8 +3,8 @@ use std::sync::Arc;
 use crate::{compute::Compute, egui_app::EguiApp, wgpu_helper::load_img};
 use egui_wgpu::{
     wgpu::{
-        self, BindGroupLayoutDescriptor, BlendState, ColorWrites, PipelineCompilationOptions,
-        RenderPipeline,
+        self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites,
+        PipelineCompilationOptions, RenderPipeline,
     },
     ScreenDescriptor,
 };
@@ -18,7 +18,7 @@ pub struct WGPUState<'window> {
     pub window: Arc<Window>,
     pub screen_descriptor: ScreenDescriptor,
     pub pipeline: RenderPipeline,
-    pub bind_group: wgpu::BindGroup,
+    pub bindgroup_layout: BindGroupLayout,
 }
 impl<'window> WGPUState<'window> {
     async fn new(window: Arc<Window>) -> Self {
@@ -85,20 +85,7 @@ impl<'window> WGPUState<'window> {
                 },
             ],
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bindgroup_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-            label: Some("diffuse_bind_group"),
-        });
+
         //加载着色器
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
@@ -145,7 +132,7 @@ impl<'window> WGPUState<'window> {
             window,
             screen_descriptor,
             pipeline,
-            bind_group,
+            bindgroup_layout,
         }
     }
 }
@@ -199,21 +186,53 @@ impl<'a> WGPUAPP<'a> {
             .on_resize(self.state.as_ref().unwrap());
     }
     pub fn update(&mut self) {
-        let output = self
-            .state
-            .as_mut()
-            .unwrap()
+        let state = self.state.as_mut().unwrap();
+        let output = state
             .surface
             .get_current_texture()
             .expect("找不到一个output");
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.state.as_mut().unwrap().device.create_command_encoder(
-            &wgpu::CommandEncoderDescriptor {
+        let mut encoder = state
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
-            },
-        );
+            });
+        //先执行计算的pass
+        let texture = self
+            .audio_compute
+            .as_mut()
+            .unwrap()
+            .update(state, &mut encoder);
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        //创建bindgroup
+        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &state.bindgroup_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+            label: Some("diffuse_bind_group"),
+        });
+        //然后是渲染的
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
@@ -234,15 +253,12 @@ impl<'a> WGPUAPP<'a> {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            render_pass.set_pipeline(&self.state.as_ref().unwrap().pipeline);
-            render_pass.set_bind_group(0, &self.state.as_mut().unwrap().bind_group, &[]);
+            render_pass.set_pipeline(&state.pipeline);
+            render_pass.set_bind_group(0, &bind_group, &[]);
             render_pass.draw(0..3, 0..1);
         }
 
-        self.appgui
-            .as_mut()
-            .unwrap()
-            .update(self.state.as_mut().unwrap())(&mut encoder, &view);
+        self.appgui.as_mut().unwrap().update(state)(&mut encoder, &view);
 
         self.state
             .as_mut()
@@ -250,6 +266,6 @@ impl<'a> WGPUAPP<'a> {
             .queue
             .submit(std::iter::once(encoder.finish()));
         output.present();
-        // self.state.as_mut().unwrap().device.poll(wgpu::Maintain::Wait); // 阻塞直到计算完成（仅限非 Web 平台）
+        // state.device.poll(wgpu::Maintain::Wait); // 阻塞直到计算完成（仅限非 Web 平台）
     }
 }

@@ -141,3 +141,6 @@ impl EguiApp {
         self.end_frame_and_draw(state)
     }
 }
+/*
+其实还有一个思路 就是采样的东西使用sampler来搞 其实搞成对数坐标也是可以做到的 计算着色器那边只要负责把没有采样的图片堆出来就好了
+*/
