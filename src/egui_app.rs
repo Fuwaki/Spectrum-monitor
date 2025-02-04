@@ -1,15 +1,15 @@
-use std::os::linux::raw;
-
-use egui::{viewport, Context};
+use crate::{audio, wgpu_app::WGPUState};
+use audio::Audio;
+use egui::{viewport, ComboBox, Context};
 use egui_wgpu::Renderer;
 use egui_winit::State;
-use wgpu::Device;
-
-use crate::wgpu_app::WGPUState;
+use frame_counter::FrameCounter;
 
 pub struct EguiApp {
     render: Renderer,
     state: State,
+    audio_stream: Option<Audio>,
+    frame_counter: FrameCounter,
 }
 impl EguiApp {
     pub fn new(
@@ -39,6 +39,8 @@ impl EguiApp {
         Self {
             state: egui_state,
             render: egui_render,
+            audio_stream: None,
+            frame_counter: FrameCounter::default(),
         }
     }
     pub fn on_input_event(
@@ -54,24 +56,23 @@ impl EguiApp {
         self.state.egui_ctx().begin_pass(raw_input);
     }
     fn draw(&mut self) {
-        egui::Window::new("Hello Fker!")
+        egui::Window::new("Speculum Monitor Options")
             .resizable(true)
             .vscroll(true)
             .default_open(false)
+            // .frame(Frame::default().fill(Color32::from_hex("#10101080").unwrap()))
             .show(self.state.egui_ctx(), |ui| {
-                ui.label("YIAOYIAOYIAO!");
-
-                if ui.button("Fk Him!").clicked() {
+                if ui.button("Play").clicked() {
                     println!("boom!")
                 }
+                if ui.button("Stop").clicked() {
+                    println!("boom!")
+                }
+                
+                ui.label("Speculum!");
 
                 ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(format!(
-                        "Pixels per point: {}",
-                        self.state.egui_ctx().pixels_per_point()
-                    ));
-                });
+                ui.label(format!("fps:{:.2}", self.frame_counter.avg_frame_rate()));
             });
     }
     fn end_frame_and_draw<'a, 'b>(
@@ -79,11 +80,12 @@ impl EguiApp {
         state: &'a WGPUState,
     ) -> impl FnOnce(&mut egui_wgpu::wgpu::CommandEncoder, &'b egui_wgpu::wgpu::TextureView) + 'a
     {
-        self.state.egui_ctx().set_pixels_per_point(state.screen_descriptor.pixels_per_point);
+        self.state
+            .egui_ctx()
+            .set_pixels_per_point(state.screen_descriptor.pixels_per_point);
         let out = self.state.egui_ctx().end_pass();
-        
-        let trangles =
-             self
+
+        let trangles = self
             .state
             .egui_ctx()
             .tessellate(out.shapes, state.screen_descriptor.pixels_per_point);
@@ -131,6 +133,7 @@ impl EguiApp {
         state: &'a WGPUState,
     ) -> impl FnOnce(&'a mut egui_wgpu::wgpu::CommandEncoder, &'a egui_wgpu::wgpu::TextureView) + 'a
     {
+        self.frame_counter.tick();
         let window = state.window.clone();
         self.begin_frame(&window);
         self.draw();

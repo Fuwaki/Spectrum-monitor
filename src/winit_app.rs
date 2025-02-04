@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use winit::{
-    application::ApplicationHandler, dpi::{LogicalSize, PhysicalSize}, event_loop::ControlFlow, window::Window,
+    application::ApplicationHandler, dpi::LogicalSize, event_loop::ControlFlow, window::Window,
 };
 
-use crate::wgpu_app::{WGPUState, WGPUAPP};
+use crate::wgpu_app::WGPUAPP;
 
 pub struct App<'a> {
     window: Option<Arc<Window>>,
@@ -44,11 +44,11 @@ impl ApplicationHandler for App<'_> {
     fn window_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        _window_id: winit::window::WindowId,
         event: winit::event::WindowEvent,
     ) {
         self.app.on_event(self.window.as_ref().unwrap(), &event);
-        println!("{:?}",event);
+        // println!("{:?}",event);
 
         match event {
             winit::event::WindowEvent::CloseRequested => event_loop.exit(),
