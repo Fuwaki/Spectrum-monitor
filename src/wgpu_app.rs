@@ -24,8 +24,7 @@ pub struct WGPUState<'window> {
     pub window: Arc<Window>,
     pub screen_descriptor: ScreenDescriptor,
     pub pipeline: RenderPipeline,
-    pub bindgroup_layout: BindGroupLayout,
-}
+    pub bindgroup_layout: BindGroupLayout,}
 impl<'window> WGPUState<'window> {
     async fn new(window: Arc<Window>) -> Self {
         //实例
@@ -146,6 +145,8 @@ pub struct WGPUAPP<'a> {
     state: Option<WGPUState<'a>>,
     appgui: Option<EguiApp>,
     audio_compute: Option<Compute>,
+    pub height: u32,
+
 }
 impl<'a> WGPUAPP<'a> {
     pub fn new() -> Self {
@@ -153,6 +154,7 @@ impl<'a> WGPUAPP<'a> {
             state: None,
             appgui: None,
             audio_compute: None,
+            height:1024/2         //这里要和初始的fftsize的一半保持一致
         }
     }
 
@@ -167,7 +169,10 @@ impl<'a> WGPUAPP<'a> {
             None,
             1,
         ));
-        self.audio_compute = Some(Compute::new(self.state.as_ref().unwrap()));
+        self.audio_compute = Some(Compute::new(
+            self.state.as_ref().unwrap(),
+            self.height,
+        ));
     }
     pub fn on_event(&mut self, window: &Window, e: &WindowEvent) {
         if let Some(r) = self.appgui.as_mut() {
@@ -175,21 +180,18 @@ impl<'a> WGPUAPP<'a> {
         }
     }
     pub fn on_resize(&mut self, w: u32, h: u32) {
-        self.state.as_mut().unwrap().surface_config.width = w;
-        self.state.as_mut().unwrap().surface_config.height = h;
-        self.state.as_ref().unwrap().surface.configure(
-            &self.state.as_ref().unwrap().device,
-            &self.state.as_ref().unwrap().surface_config,
-        );
-        self.state
-            .as_mut()
-            .unwrap()
-            .screen_descriptor
-            .size_in_pixels = [w, h];
+        println!("qw");
+        let state = self.state.as_mut().unwrap();
+        state.surface_config.width = w;
+        state.surface_config.height = h;
+        state
+            .surface
+            .configure(&state.device, &state.surface_config);
+        state.screen_descriptor.size_in_pixels = [w, h];
         self.audio_compute
             .as_mut()
             .unwrap()
-            .on_resize(self.state.as_ref().unwrap());
+            .on_resize(state, self.height);
     }
     pub fn update(&mut self) {
         let state = self.state.as_mut().unwrap();
@@ -213,6 +215,14 @@ impl<'a> WGPUAPP<'a> {
             //     .map(|x| f64::sin((x as f64 + ms as f64) / 50.0) as f32)
             //     .collect();
             // println!("{:?}",t);
+            if self.height!=d.1/2 as u32 {
+                //如果fftsize发生了改变 那么通过计算pass更变高度
+                self.height = d.1/2 as u32;
+                self.audio_compute
+                .as_mut()
+                .unwrap()
+                .on_resize(state, self.height);
+            }
             let mut encoder =
                 state
                     .device
@@ -230,7 +240,6 @@ impl<'a> WGPUAPP<'a> {
                 .unwrap()
                 .update(state, &mut encoder);
             state.queue.submit([encoder.finish()]);
-
         }
         let mut encoder = state
             .device
@@ -246,8 +255,8 @@ impl<'a> WGPUAPP<'a> {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
 

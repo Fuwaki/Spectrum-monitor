@@ -3,7 +3,7 @@ use crate::{
     wgpu_app::WGPUState,
 };
 use audio::Audio;
-use egui::{viewport, ComboBox, Context};
+use egui::{viewport, Color32, ComboBox, Context, Frame};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 use frame_counter::FrameCounter;
@@ -15,6 +15,7 @@ pub struct EguiApp {
     frame_counter: FrameCounter,
     buffer_remain: usize,
     select_fftwindow: FFTWindow,
+    fftsize: u32,
 }
 impl EguiApp {
     pub fn new(
@@ -25,6 +26,24 @@ impl EguiApp {
         msaa_samples: u32,
     ) -> Self {
         let egui_ctx = Context::default();
+        //设置中文字体
+        let mut font = egui::FontDefinitions::default();
+        font.font_data.insert(
+            "my_font".to_owned(),
+            egui::FontData::from_static(include_bytes!("../MiSans-Medium.otf")).into(),
+        );
+        font.families
+            .get_mut(&egui::FontFamily::Proportional)
+            .unwrap()
+            .insert(0, "my_font".to_owned());
+
+        // Put my font as last fallback for monospace:
+        font.families
+            .get_mut(&egui::FontFamily::Monospace)
+            .unwrap()
+            .push("my_font".to_owned());
+        egui_ctx.set_fonts(font);
+
         let egui_state = State::new(
             egui_ctx,
             viewport::ViewportId::ROOT,
@@ -48,6 +67,7 @@ impl EguiApp {
             frame_counter: FrameCounter::default(),
             buffer_remain: 0,
             select_fftwindow: FFTWindow::Hanning,
+            fftsize: 1024,
         }
     }
     pub fn on_input_event(
@@ -63,43 +83,61 @@ impl EguiApp {
         self.state.egui_ctx().begin_pass(raw_input);
     }
     fn draw(&mut self) {
-        egui::Window::new("Spectrum Monitor Options")
+        egui::Window::new("频谱监视器选项")
             .resizable(true)
             .vscroll(true)
             .default_open(false)
-            // .frame(Frame::default().fill(Color32::from_hex("#10101080").unwrap()))
+            .frame(Frame::default().fill(Color32::from_hex("#10101080").unwrap()))
             .show(self.state.egui_ctx(), |ui| {
-                if ui.button("Play").clicked() {
-                    self.audio_stream = Some(Audio::new());
-                    self.audio_stream.as_mut().unwrap().start();
-                }
-                if ui.button("Stop").clicked() {
-                    self.audio_stream.as_mut().unwrap().stop();
-                }
-                egui::ComboBox::from_label("Select FFT Window")
-                    .selected_text(format!("{:?}", self.select_fftwindow))
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.select_fftwindow,
-                            FFTWindow::Hanning,
-                            "Hanning",
+                egui::Grid::new("my_grid")
+                    .num_columns(2)
+                    .spacing([40.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("控制");
+                        if ui.button("开始").clicked() {
+                            self.audio_stream = Some(Audio::new());
+                            self.audio_stream.as_mut().unwrap().start();
+                        }
+                        if ui.button("暂停").clicked() {
+                            self.audio_stream.as_mut().unwrap().stop();
+                        }
+                        ui.end_row();
+                        ui.label("FFT 大小");
+                        ui.add(
+                            egui::Slider::new(&mut self.fftsize, 32..=4096)
+                                .logarithmic(true)
                         );
-                        ui.selectable_value(
-                            &mut self.select_fftwindow,
-                            FFTWindow::Rectangular,
-                            "Rectangular",
-                        );
+                        ui.end_row();
+                        ui.label("FFT 窗函数");
+                        egui::ComboBox::from_label("")
+                            .selected_text(format!("{:?}", self.select_fftwindow))
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut self.select_fftwindow,
+                                    FFTWindow::Hanning,
+                                    "Hanning",
+                                );
+                                ui.selectable_value(
+                                    &mut self.select_fftwindow,
+                                    FFTWindow::Rectangular,
+                                    "Rectangular",
+                                );
+                            });
+                        ui.end_row();
                     });
-
                 ui.separator();
-                ui.label(format!("fps:{:.2}", self.frame_counter.avg_frame_rate()));
-                ui.label(format!("buffer remain:{:.2}", self.buffer_remain));
+                ui.label(format!("帧率：{:.2}", self.frame_counter.avg_frame_rate()));
+                ui.label(format!("未播放缓冲区：{:.2}", self.buffer_remain));
             });
     }
-    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, usize)> {
+    //咱这个函数返回的元祖的第二个元素是当前的fft大小
+    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, u32)> {
         let a = self.audio_stream.as_mut()?.fetch_data();
         self.buffer_remain = a.as_ref()?.1;
-        a
+        Some((a.unwrap().0, self.fftsize ))
+        
+        
     }
     fn end_frame_and_draw<'a, 'b>(
         &'a mut self,
@@ -155,15 +193,24 @@ impl EguiApp {
             }
         }
     }
+    //更新ui中的参数到audio中
+    fn update_argument(&mut self) {
+        //确保fftsize是2的整数幂
+        let t: u32 = (self.fftsize as f32).log2().round() as u32;
+        self.fftsize = 2u32.pow(t);
+        if let Some(a) = &mut self.audio_stream {
+            //更新窗函数
+            a.set_fft_window_func(self.select_fftwindow);
+            //更新fftsize
+            a.set_fft_size(self.fftsize as usize);
+        }
+    }
     pub fn update<'a>(
         &'a mut self,
         state: &'a WGPUState,
     ) -> impl FnOnce(&'a mut egui_wgpu::wgpu::CommandEncoder, &'a egui_wgpu::wgpu::TextureView) + 'a
     {
-        //更新窗函数
-        if let Some(a) =&mut self.audio_stream  {
-            a.set_fft_window_func(self.select_fftwindow);
-        }
+        self.update_argument();
         self.frame_counter.tick();
         let window = state.window.clone();
         self.begin_frame(&window);

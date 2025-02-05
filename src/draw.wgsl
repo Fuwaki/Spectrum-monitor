@@ -7,48 +7,40 @@ struct SampleData {
 };
 @group(0) @binding(2)
 var<storage,read> sampleData: SampleData;
-fn hsv2rgb(hsv: vec3<f32>) -> vec3<f32> {
-    let h = hsv.x * 6.0;
-    let s = hsv.y;
-    let v = hsv.z;
+fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
 
-    let i = floor(h);
-    let f = h - i;
+    if (s <= 0.0) {
+        return vec3f(v, v, v);
+    }
+
+    let h_normalized = fract(h); // 确保色相在[0, 1)范围内
+    let h_scaled = h_normalized * 6.0;
+    let i = floor(h_scaled);
+    let f = h_scaled - i;
+    
     let p = v * (1.0 - s);
     let q = v * (1.0 - s * f);
     let t = v * (1.0 - s * (1.0 - f));
-
-    switch u32(i) {
-        case 0u: { return vec3(v, t, p); }
-        case 1u: { return vec3(q, v, p); }
-        case 2u: { return vec3(p, v, t); }
-        case 3u: { return vec3(p, q, v); }
-        case 4u: { return vec3(t, p, v); }
-        default: { return vec3(v, p, q); }
+    
+    let i_int = u32(i);
+    
+    // 根据色相区段选择颜色组合
+    switch(i_int) {
+        case 0u:  { return vec3f(v, t, p); }
+        case 1u:  { return vec3f(q, v, p); }
+        case 2u:  { return vec3f(p, v, t); }
+        case 3u:  { return vec3f(p, q, v); }
+        case 4u:  { return vec3f(t, p, v); }
+        default:  { return vec3f(v, p, q); } // case 5u
     }
 }
 fn qwq(gray: f32) -> vec3f {
-    // 定义颜色映射
-    // 低数值（蓝色）到高数值（红色）的过渡
-    let blue = vec3f(0.0, 0.0, 1.0);  // 蓝色
-    let red = vec3f(1.0, 0.0, 0.0);   // 红色
-    let purple = vec3f(0.5, 0.0, 0.5); // 紫色
-    let pink = vec3f(1.0, 0.0, 0.5);  // 粉色
+    // 使用色相环进行颜色映射
+    let hue = 0.7 - gray * 0.7;      // 色调从紫色（0.7）到红色（0.0）
+    let saturation = 1.0;             // 饱和度
+    let value = pow(gray, 0.8);       // 亮度，调整 gamma 值以增强对比
 
-    // 根据灰度值进行颜色插值
-    var color = mix(blue, red, gray); // 从蓝色到红色的线性过渡
-
-    // 添加中间颜色过渡（可选）
-    let midGray = 0.5; // 中间灰度值
-    if gray < midGray {
-        // 从蓝色到紫色过渡
-        color = mix(blue, purple, gray / midGray);
-    } else {
-        // 从紫色到红色过渡
-        color = mix(purple, red, (gray - midGray) / (1.0 - midGray));
-    }
-
-    return color;
+    return hsv2rgb(hue, saturation, value);
 }
 @compute @workgroup_size(32,8)
 fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
@@ -60,7 +52,6 @@ fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
 
     // 如果目标在右侧新列（绘制新频谱条）
     if dst_pixel.x == textureDimensions(history_tex).x - 1 {
-        // 在此处生成新频谱数据（示例：随机高度）
         // textureStore(current_tex, dst_pixel, vec4(hsv2rgb(vec3<f32>(sampleData.data[dst_pixel.y],0.9,0.7)).xyz, 1.0));
         textureStore(current_tex, dst_pixel, vec4(qwq(sampleData.data[dst_pixel.y]), 1.0));
     } else {

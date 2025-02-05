@@ -74,6 +74,9 @@ impl Audio {
     pub fn set_fft_window_func(&mut self,window_func:FFTWindow){
         self.fftwindow=window_func
     }
+    pub fn set_fft_size(&mut self,fftsize:usize){
+        self.fftsize=fftsize
+    }
 
     fn do_fft(&self,mut pcm_data: Vec<f32>) -> Vec<f32> {
         // Perform a forward FFT of size 1234

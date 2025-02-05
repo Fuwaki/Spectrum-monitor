@@ -17,6 +17,7 @@ pub struct Compute {
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sample_buffer: wgpu::Buffer,
+    height: u32, //宽度我们用屏幕的宽度就好 但是高度我们要的是fft的大小 所以单独指定
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,12 +26,13 @@ pub struct SampleData {
     pub length: u32,
 }
 impl Compute {
-    fn create_texture(state: &WGPUState, label: Option<&str>) -> Texture {
+    fn create_texture(state: &WGPUState, label: Option<&str>, height: u32) -> Texture {
+        println!("{}",height);
         state.device.create_texture(&TextureDescriptor {
             label,
             size: wgpu::Extent3d {
                 width: state.surface_config.width,
-                height: state.surface_config.height,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -55,15 +57,15 @@ impl Compute {
         queue.submit([]);
     }
 
-    pub fn new(state: &WGPUState) -> Self {
+    pub fn new(state: &WGPUState, height: u32) -> Self {
         //初始化缓冲区的数据
         let mut data = SampleData {
             data: [0.0; MAX_BUFFER_SIZE],
             length: MAX_BUFFER_SIZE as u32,
         };
 
-        let texture_a = Self::create_texture(state, Some("texture_a"));
-        let texture_b = Self::create_texture(state, Some("texture_b"));
+        let texture_a = Self::create_texture(state, Some("texture_a"), height);
+        let texture_b = Self::create_texture(state, Some("texture_b"), height);
         let sample_buffer = state.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("AudioSample Buffer"),
             contents: bytemuck::bytes_of(&data), //把数据填进去
@@ -143,11 +145,12 @@ impl Compute {
             pipeline: compute_pipline,
             bind_group_layout,
             sample_buffer,
+            height,
         }
     }
-    pub fn on_resize(&mut self, state: &WGPUState) {
-        self.textures[0] = Self::create_texture(state, Some("texture_a"));
-        self.textures[1] = Self::create_texture(state, Some("texture_b"));
+    pub fn on_resize(&mut self, state: &WGPUState, height: u32) {
+        self.textures[0] = Self::create_texture(state, Some("texture_a"), height);
+        self.textures[1] = Self::create_texture(state, Some("texture_b"), height);
     }
     pub fn update(&mut self, state: &WGPUState, encoder: &mut wgpu::CommandEncoder) {
         let current_texture = &self.textures[(self.current_index % 2) as usize];
@@ -192,7 +195,7 @@ impl Compute {
         然后dispatch是指定在各个维度创建多少个工作组
         */
         let dispatch_x = (state.surface_config.width + WORKGROUP_SIZE.0 - 1) / WORKGROUP_SIZE.0;
-        let dispatch_y = (state.surface_config.height + WORKGROUP_SIZE.1 - 1) / WORKGROUP_SIZE.1;
+        let dispatch_y = (self.height + WORKGROUP_SIZE.1 - 1) / WORKGROUP_SIZE.1;
         compute_pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
         self.current_index += 1;
         self.current_index %= 2;
