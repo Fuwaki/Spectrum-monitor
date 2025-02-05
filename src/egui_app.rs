@@ -1,4 +1,7 @@
-use crate::{audio, wgpu_app::WGPUState};
+use crate::{
+    audio::{self, FFTWindow},
+    wgpu_app::WGPUState,
+};
 use audio::Audio;
 use egui::{viewport, ComboBox, Context};
 use egui_wgpu::Renderer;
@@ -10,6 +13,8 @@ pub struct EguiApp {
     state: State,
     audio_stream: Option<Audio>,
     frame_counter: FrameCounter,
+    buffer_remain: usize,
+    select_fftwindow: FFTWindow,
 }
 impl EguiApp {
     pub fn new(
@@ -41,6 +46,8 @@ impl EguiApp {
             render: egui_render,
             audio_stream: None,
             frame_counter: FrameCounter::default(),
+            buffer_remain: 0,
+            select_fftwindow: FFTWindow::Hanning,
         }
     }
     pub fn on_input_event(
@@ -56,24 +63,43 @@ impl EguiApp {
         self.state.egui_ctx().begin_pass(raw_input);
     }
     fn draw(&mut self) {
-        egui::Window::new("Speculum Monitor Options")
+        egui::Window::new("Spectrum Monitor Options")
             .resizable(true)
             .vscroll(true)
             .default_open(false)
             // .frame(Frame::default().fill(Color32::from_hex("#10101080").unwrap()))
             .show(self.state.egui_ctx(), |ui| {
                 if ui.button("Play").clicked() {
-                    println!("boom!")
+                    self.audio_stream = Some(Audio::new());
+                    self.audio_stream.as_mut().unwrap().start();
                 }
                 if ui.button("Stop").clicked() {
-                    println!("boom!")
+                    self.audio_stream.as_mut().unwrap().stop();
                 }
-                
-                ui.label("Speculum!");
+                egui::ComboBox::from_label("Select FFT Window")
+                    .selected_text(format!("{:?}", self.select_fftwindow))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.select_fftwindow,
+                            FFTWindow::Hanning,
+                            "Hanning",
+                        );
+                        ui.selectable_value(
+                            &mut self.select_fftwindow,
+                            FFTWindow::Rectangular,
+                            "Rectangular",
+                        );
+                    });
 
                 ui.separator();
                 ui.label(format!("fps:{:.2}", self.frame_counter.avg_frame_rate()));
+                ui.label(format!("buffer remain:{:.2}", self.buffer_remain));
             });
+    }
+    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, usize)> {
+        let a = self.audio_stream.as_mut()?.fetch_data();
+        self.buffer_remain = a.as_ref()?.1;
+        a
     }
     fn end_frame_and_draw<'a, 'b>(
         &'a mut self,
@@ -118,7 +144,7 @@ impl EguiApp {
                 label: Some("egui main render pass"),
                 occlusion_query_set: None,
             });
-            
+
             self.render.render(
                 &mut rpass.forget_lifetime(),
                 &trangles,
@@ -134,6 +160,10 @@ impl EguiApp {
         state: &'a WGPUState,
     ) -> impl FnOnce(&'a mut egui_wgpu::wgpu::CommandEncoder, &'a egui_wgpu::wgpu::TextureView) + 'a
     {
+        //更新窗函数
+        if let Some(a) =&mut self.audio_stream  {
+            a.set_fft_window_func(self.select_fftwindow);
+        }
         self.frame_counter.tick();
         let window = state.window.clone();
         self.begin_frame(&window);

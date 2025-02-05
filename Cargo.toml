@@ -1,5 +1,5 @@
 [package]
-name = "music_play"
+name = "spectrum_monitor"
 version = "0.1.0"
 edition = "2021"
 
@@ -16,7 +16,5 @@ frame_counter = "0.1.2"
 pollster = "0.4.0"
 rand = "0.9.0"
 rustfft = "6.2.0"
-tokio = "1.43.0"
-tokio-stream = "0.1.17"
 # wgpu = "24.0.1"   #好像用egui_wgpu包含的就好
 winit = "0.30.8"

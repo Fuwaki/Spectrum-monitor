@@ -21,8 +21,8 @@ pub struct Compute {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SampleData {
-    data: [f32; MAX_BUFFER_SIZE],
-    length: u32,
+    pub data: [f32; MAX_BUFFER_SIZE],
+    pub length: u32,
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>) -> Texture {
@@ -55,7 +55,7 @@ impl Compute {
         queue.submit([]);
     }
 
-    pub fn new(state: &WGPUState, buffer_size: usize) -> Self {
+    pub fn new(state: &WGPUState) -> Self {
         //初始化缓冲区的数据
         let mut data = SampleData {
             data: [0.0; MAX_BUFFER_SIZE],
@@ -143,7 +143,6 @@ impl Compute {
             pipeline: compute_pipline,
             bind_group_layout,
             sample_buffer,
-            buffer_size,
         }
     }
     pub fn on_resize(&mut self, state: &WGPUState) {

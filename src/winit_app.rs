@@ -34,7 +34,7 @@ impl<'a> App<'a> {
 impl ApplicationHandler for App<'_> {
     fn resumed(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let window = event_loop
-            .create_window(Window::default_attributes())
+            .create_window(Window::default_attributes().with_title("Spectrum Monitor"))
             .unwrap();
         self.init_window(window);
     }

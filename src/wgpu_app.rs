@@ -3,7 +3,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::{compute::Compute, egui_app::EguiApp};
+use crate::{
+    compute::{Compute, SampleData},
+    egui_app::EguiApp,
+};
 use egui_wgpu::{
     wgpu::{
         self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites,
@@ -164,7 +167,7 @@ impl<'a> WGPUAPP<'a> {
             None,
             1,
         ));
-        self.audio_compute = Some(Compute::new(self.state.as_ref().unwrap(), 1024));
+        self.audio_compute = Some(Compute::new(self.state.as_ref().unwrap()));
     }
     pub fn on_event(&mut self, window: &Window, e: &WindowEvent) {
         if let Some(r) = self.appgui.as_mut() {
@@ -197,33 +200,43 @@ impl<'a> WGPUAPP<'a> {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        //如果有新数据 上计算pass
+        while let Some(d) = self.appgui.as_mut().unwrap().get_audio_stream_data() {
+            // let start = SystemTime::now();
+            // let since_the_epoch = start
+            //     .duration_since(UNIX_EPOCH)
+            //     .expect("Time went backwards");
+            // let ms = since_the_epoch.as_secs() * 1000 + since_the_epoch.subsec_millis() as u64;
+            // let t: Vec<f32> = (1..4096)
+            //     .into_iter()
+            //     .map(|x| f64::sin((x as f64 + ms as f64) / 50.0) as f32)
+            //     .collect();
+            // println!("{:?}",t);
+            let mut encoder =
+                state
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Compute Encoder"),
+                    });
+
+            //先更新数据
+            self.audio_compute
+                .as_mut()
+                .unwrap()
+                .update_data(&state.queue, d.0.as_slice());
+            self.audio_compute
+                .as_mut()
+                .unwrap()
+                .update(state, &mut encoder);
+            state.queue.submit([encoder.finish()]);
+
+        }
         let mut encoder = state
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        //如果有新数据 上计算pass
-        if true {
-            let start = SystemTime::now();
-            let since_the_epoch = start
-                .duration_since(UNIX_EPOCH)
-                .expect("Time went backwards");
-            let ms = since_the_epoch.as_secs() * 1000 + since_the_epoch.subsec_millis() as u64;
-            let t: Vec<f32> = (1..4096)
-                .into_iter()
-                .map(|x| f64::sin((x as f64 + ms as f64) / 20.0) as f32)
-                .collect();
-            // println!("{:?}",t);
-            //先更新数据
-            self.audio_compute
-                .as_mut()
-                .unwrap()
-                .update_data(&state.queue, t.as_slice());
-            self.audio_compute
-                .as_mut()
-                .unwrap()
-                .update(state, &mut encoder);
-        }
 
         //把计算pass得到的纹理变成sampler
         let texture = self.audio_compute.as_mut().unwrap().output();
