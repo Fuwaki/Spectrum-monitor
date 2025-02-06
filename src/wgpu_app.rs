@@ -189,19 +189,8 @@ impl<'a> WGPUAPP<'a> {
     }
     pub fn handle_close(&self) {
         if let Some(state) = &self.state {
-            // Clean up or release resources here if needed
             state.device.poll(wgpu::Maintain::Wait);
         }
-
-        if let Some(appgui) = &self.appgui {
-            // Perform any necessary cleanup for the GUI
-        }
-
-        if let Some(audio_compute) = &self.audio_compute {
-            // Perform any necessary cleanup for the compute resources
-        }
-
-        // Additional actions to handle the close event
     }
 
     pub fn init(&mut self, window: Arc<Window>) {
