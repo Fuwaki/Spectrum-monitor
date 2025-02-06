@@ -10,7 +10,7 @@ use egui_wgpu::wgpu::{
     include_wgsl, BindGroupDescriptor, BindGroupEntry, ComputePassDescriptor,
     ComputePipelineDescriptor, Texture, TextureDescriptor, TextureViewDescriptor,
 };
-const MAX_BUFFER_SIZE: usize = 4096;
+const MAX_BUFFER_SIZE: usize = 16384; //记得和计算着色器中保持一致
 pub struct Compute {
     textures: [wgpu::Texture; 2],
     current_index: u8,
@@ -24,7 +24,7 @@ pub struct Compute {
 pub struct SampleData {
     pub data: [f32; MAX_BUFFER_SIZE],
     pub length: u32,
-    pub factor:f32
+    pub factor: f32,
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>, height: u32) -> Texture {
@@ -43,7 +43,7 @@ impl Compute {
             view_formats: &[],
         })
     }
-    pub fn update_data(&self, queue: &Queue, data: &[f32],factor:f32) {
+    pub fn update_data(&self, queue: &Queue, data: &[f32], factor: f32) {
         assert!(data.len() < MAX_BUFFER_SIZE, "数据超过最大缓冲区");
         let d = SampleData {
             data: {
@@ -52,7 +52,7 @@ impl Compute {
                 array
             },
             length: data.len() as u32,
-            factor
+            factor,
         };
         queue.write_buffer(&self.sample_buffer, 0, bytemuck::bytes_of(&d));
         queue.submit([]);
@@ -60,10 +60,10 @@ impl Compute {
 
     pub fn new(state: &WGPUState, height: u32) -> Self {
         //初始化缓冲区的数据
-        let mut data = SampleData {
+        let data = SampleData {
             data: [0.0; MAX_BUFFER_SIZE],
             length: MAX_BUFFER_SIZE as u32,
-            factor:0.15
+            factor: 0.15,
         };
 
         let texture_a = Self::create_texture(state, Some("texture_a"), height);

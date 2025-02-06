@@ -16,7 +16,8 @@ pub struct EguiApp {
     buffer_remain: usize,
     select_fftwindow: FFTWindow,
     fftsize: u32,
-    value_gain_factor:f32,
+    value_gain_factor: f32,
+    pub log_scale: f32,
 }
 impl EguiApp {
     pub fn new(
@@ -69,7 +70,8 @@ impl EguiApp {
             buffer_remain: 0,
             select_fftwindow: FFTWindow::Hanning,
             fftsize: 1024,
-            value_gain_factor:0.15
+            value_gain_factor: 0.15,
+            log_scale: 0.5,
         }
     }
     pub fn on_input_event(
@@ -106,15 +108,18 @@ impl EguiApp {
                         }
                         ui.end_row();
                         ui.label("FFT 大小");
-                        ui.add(
-                            egui::Slider::new(&mut self.fftsize, 32..=4096)
-                                .logarithmic(true)
-                        );
+                        ui.add(egui::Slider::new(&mut self.fftsize, 32..=4096*4).logarithmic(true));
                         ui.end_row();
                         ui.label("值增益系数");
                         ui.add(
                             egui::Slider::new(&mut self.value_gain_factor, 0.1..=0.9)
-                                .logarithmic(true)
+                                .logarithmic(true),
+                        );
+                        ui.end_row();
+                        ui.label("对数坐标系数");
+                        ui.add(
+                            egui::Slider::new(&mut self.log_scale, 0.00000005..=1.0)
+                                .logarithmic(true),
                         );
                         ui.end_row();
                         ui.label("FFT 窗函数");
@@ -143,7 +148,6 @@ impl EguiApp {
                                 );
                             });
                         ui.end_row();
-
                     });
                 ui.separator();
                 ui.label(format!("帧率：{:.2}", self.frame_counter.avg_frame_rate()));
@@ -151,12 +155,10 @@ impl EguiApp {
             });
     }
     //咱这个函数返回的元祖的第二个元素是当前的fft大小 第三个是因数
-    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, u32,f32)> {
+    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, u32, f32)> {
         let a = self.audio_stream.as_mut()?.fetch_data();
         self.buffer_remain = a.as_ref()?.1;
-        Some((a.unwrap().0, self.fftsize,self.value_gain_factor ))
-        
-        
+        Some((a.unwrap().0, self.fftsize, self.value_gain_factor))
     }
     fn end_frame_and_draw<'a, 'b>(
         &'a mut self,

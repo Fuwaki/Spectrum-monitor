@@ -2,7 +2,7 @@
 @group(0) @binding(0) var history_tex: texture_2d<f32>;
 @group(0) @binding(1) var current_tex: texture_storage_2d<rgba8unorm, write>;
 struct SampleData {
-    data: array<f32, 4096>,
+    data: array<f32, 16384>,
     length: u32,
     factor: f32,
 };

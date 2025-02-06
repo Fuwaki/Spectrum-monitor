@@ -1,7 +1,4 @@
-use std::{
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
 use crate::{
     compute::{Compute, SampleData},
@@ -9,7 +6,10 @@ use crate::{
 };
 use egui_wgpu::{
     wgpu::{
-        self, util::{BufferInitDescriptor, DeviceExt}, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, Buffer, BufferBinding, ColorWrites, PipelineCompilationOptions, RenderPipeline
+        self,
+        util::{BufferInitDescriptor, DeviceExt},
+        BindGroupLayout, BindGroupLayoutDescriptor, BlendState, Buffer, BufferBinding, ColorWrites,
+        PipelineCompilationOptions, RenderPipeline,
     },
     ScreenDescriptor,
 };
@@ -19,6 +19,7 @@ use winit::{event::WindowEvent, window::Window};
 struct scale_factor {
     a: f32,
     b: f32,
+    log: f32,
 }
 pub struct WGPUState<'window> {
     pub device: wgpu::Device,
@@ -29,7 +30,7 @@ pub struct WGPUState<'window> {
     pub screen_descriptor: ScreenDescriptor,
     pub pipeline: RenderPipeline,
     pub bindgroup_layout: BindGroupLayout,
-    pub buffer:Buffer
+    pub buffer: Buffer,
 }
 impl<'window> WGPUState<'window> {
     async fn new(window: Arc<Window>) -> Self {
@@ -109,10 +110,14 @@ impl<'window> WGPUState<'window> {
         });
 
         //创建buffer 用来传递鼠标的缩放操作
-        let buffer = device.create_buffer_init( &BufferInitDescriptor{
+        let buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            contents: bytemuck::bytes_of(&scale_factor{a:0.0,b:1.0}),
+            contents: bytemuck::bytes_of(&scale_factor {
+                a: 0.0,
+                b: 1.0,
+                log: 0.5,
+            }),
         });
 
         //加载着色器
@@ -161,7 +166,7 @@ impl<'window> WGPUState<'window> {
             screen_descriptor,
             pipeline,
             bindgroup_layout,
-            buffer
+            buffer,
         }
     }
 }
@@ -170,6 +175,7 @@ pub struct WGPUAPP<'a> {
     appgui: Option<EguiApp>,
     audio_compute: Option<Compute>,
     pub height: u32,
+    scale: (f32, f32),
 }
 impl<'a> WGPUAPP<'a> {
     pub fn new() -> Self {
@@ -178,7 +184,24 @@ impl<'a> WGPUAPP<'a> {
             appgui: None,
             audio_compute: None,
             height: 1024 / 2, //这里要和初始的fftsize的一半保持一致
+            scale: (0.0, 1.0),
         }
+    }
+    pub fn handle_close(&self) {
+        if let Some(state) = &self.state {
+            // Clean up or release resources here if needed
+            state.device.poll(wgpu::Maintain::Wait);
+        }
+
+        if let Some(appgui) = &self.appgui {
+            // Perform any necessary cleanup for the GUI
+        }
+
+        if let Some(audio_compute) = &self.audio_compute {
+            // Perform any necessary cleanup for the compute resources
+        }
+
+        // Additional actions to handle the close event
     }
 
     pub fn init(&mut self, window: Arc<Window>) {
@@ -213,20 +236,23 @@ impl<'a> WGPUAPP<'a> {
             .on_resize(state, self.height);
     }
     pub fn set_scale_parameters(&mut self, scale: (f32, f32)) {
-        let s=scale_factor{
-            a:scale.0,
-            b:scale.1
+        self.scale = scale;
+    }
+    fn update_scale_parameters(&mut self) {
+        let s = scale_factor {
+            a: self.scale.0,
+            b: self.scale.1,
+            log: 1.0 - self.appgui.as_mut().unwrap().log_scale,
         };
         let state = self.state.as_mut().unwrap();
-        state.queue.write_buffer(
-            &state.buffer,
-            0,
-            bytemuck::bytes_of(&s)
-        );
+        state
+            .queue
+            .write_buffer(&state.buffer, 0, bytemuck::bytes_of(&s));
         state.queue.submit([]);
         // println!("{:?}", scale);
     }
     pub fn update(&mut self) {
+        self.update_scale_parameters();
         let state = self.state.as_mut().unwrap();
         let output = state
             .surface

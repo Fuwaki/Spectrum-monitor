@@ -54,7 +54,10 @@ impl ApplicationHandler for App<'_> {
     ) {
         self.app.on_event(self.window.as_ref().unwrap(), &event);
         match event {
-            winit::event::WindowEvent::CloseRequested => event_loop.exit(),
+            winit::event::WindowEvent::CloseRequested => {
+                event_loop.exit();
+                self.app.handle_close();
+            },
             winit::event::WindowEvent::RedrawRequested => {
                 self.app.update();
                 self.window.as_mut().unwrap().request_redraw();
@@ -67,7 +70,7 @@ impl ApplicationHandler for App<'_> {
             }
             winit::event::WindowEvent::MouseWheel { delta, .. } => {
                 const TOUCHPAD_SENSITIVITY: f32 = 0.1;
-                const MOUSEWHEEL_SENSITIVITY: f32 = 0.1;
+                const MOUSEWHEEL_SENSITIVITY: f32 = 1.0;
                 const SCALE_SPEED: f32 = 0.1;
 
                 let d: f32;
