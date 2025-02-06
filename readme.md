@@ -1,6 +1,6 @@
 # 频谱监视器
 
-![image]()
+![image](demonstrate.png)
 
 就是对音频PCM信号进行离散傅里叶变换，使用```rustfft```，音频库是```cpal```
 
