@@ -120,19 +120,19 @@ impl Audio {
         magnitudes
     }
     pub fn fetch_data(&self) -> Option<(Vec<f32>, usize)> {
-        static mut temp: Vec<f32> = Vec::new();
+
+        static TEMP: std::sync::RwLock<Vec<f32>> = std::sync::RwLock::new(Vec::new());
+
+        let mut temp = TEMP.write().unwrap();
         while let Ok(mut msg) = self.rx.try_recv() {
-            unsafe {
-                temp.extend(msg.drain(..));
-            }
+            temp.extend(msg.drain(..));
         }
-        unsafe {
-            if temp.len() > self.fftsize {
-                let a: Vec<f32> = temp.drain(0..self.fftsize).collect();
-                return Some((self.do_fft(a), temp.len()));
-            } else {
-                return None;
-            }
+
+        if temp.len() > self.fftsize {
+            let a: Vec<f32> = temp.drain(0..self.fftsize).collect();
+            return Some((self.do_fft(a), temp.len()));
+        } else {
+            return None;
         }
     }
 

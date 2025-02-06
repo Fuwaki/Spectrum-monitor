@@ -16,7 +16,7 @@ use egui_wgpu::{
 use winit::{event::WindowEvent, window::Window};
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct scale_factor {
+struct ScaleFactor {
     a: f32,
     b: f32,
     log: f32,
@@ -113,7 +113,7 @@ impl<'window> WGPUState<'window> {
         let buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            contents: bytemuck::bytes_of(&scale_factor {
+            contents: bytemuck::bytes_of(&ScaleFactor {
                 a: 0.0,
                 b: 1.0,
                 log: 0.5,
@@ -239,7 +239,7 @@ impl<'a> WGPUAPP<'a> {
         self.scale = scale;
     }
     fn update_scale_parameters(&mut self) {
-        let s = scale_factor {
+        let s = ScaleFactor {
             a: self.scale.0,
             b: self.scale.1,
             log: 1.0 - self.appgui.as_mut().unwrap().log_scale,
