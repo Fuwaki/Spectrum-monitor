@@ -1,9 +1,10 @@
+use std::result::Result::Ok;
 use rustfft::num_complex::ComplexFloat;
 use std::sync::mpsc;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    Stream,
+    SampleRate, Stream, SupportedStreamConfig,
 };
 
 pub struct Audio {
@@ -24,7 +25,13 @@ impl Audio {
     fn create_stream(tx: mpsc::Sender<Vec<f32>>) -> Result<Stream, anyhow::Error> {
         let host = cpal::default_host();
         let device = host.default_input_device().expect("找不到默认输入设备");
-        let config = device.default_input_config()?;
+        let default_config = device.default_input_config()?;
+        let config = SupportedStreamConfig::new(
+            default_config.channels(),
+            SampleRate(44100), //TODO: 这里可以以后设计成可变的 但是分析了一下其实意义不大 采样率的提高不会带来频谱精度的提升 只会带来频率广度的提升 而超声波一般来说设备没有记录
+            *default_config.buffer_size(),
+            cpal::SampleFormat::F32,
+        );
         let err_fn = move |err| {
             eprintln!("an error occurred on stream: {}", err);
         };
@@ -33,6 +40,7 @@ impl Audio {
         let stream = device.build_input_stream(
             &config.into(),
             move |data: &[f32], _| {
+                println!("{:?}", data.len());
                 //声道转换
                 let mut mono_data = Vec::with_capacity(data.len() / channels as usize);
                 for i in (0..data.len()).step_by(channels as usize) {
@@ -56,8 +64,9 @@ impl Audio {
             fftwindow: FFTWindow::Hanning,
         }
     }
-    pub fn start(&mut self) {
-        self.stream = Some(Audio::create_stream(self.tx.clone()).unwrap());
+    pub fn start(&mut self)->Result<(),anyhow::Error> {
+        self.stream = Some(Audio::create_stream(self.tx.clone())?);
+        Ok(())
     }
     fn fft_window(pcm_data: &mut Vec<f32>, window_func: FFTWindow) {
         let len = pcm_data.len();
@@ -116,11 +125,10 @@ impl Audio {
         // println!("{:+.2}", b[0].re);
         let effective = &b[0..b.len() / 2 + 1];
         let magnitudes: Vec<f32> = effective.iter().map(|item| item.abs() * 2.0).collect(); //乘以2 因为我们取的是单边 作补偿
-                                                                                            // println!("{:?}",magnitudes);
+                                                                                            // println!("结果{:?}",magnitudes);
         magnitudes
     }
     pub fn fetch_data(&self) -> Option<(Vec<f32>, usize)> {
-
         static TEMP: std::sync::RwLock<Vec<f32>> = std::sync::RwLock::new(Vec::new());
 
         let mut temp = TEMP.write().unwrap();

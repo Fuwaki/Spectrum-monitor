@@ -18,6 +18,7 @@ pub struct EguiApp {
     fftsize: u32,
     value_gain_factor: f32,
     pub log_scale: f32,
+    fail:Option<String>
 }
 impl EguiApp {
     pub fn new(
@@ -72,6 +73,7 @@ impl EguiApp {
             fftsize: 1024,
             value_gain_factor: 0.15,
             log_scale: 0.5,
+            fail:None
         }
     }
     pub fn on_input_event(
@@ -100,19 +102,29 @@ impl EguiApp {
             .default_height(200.0)
             .default_open(true)
             .show(self.state.egui_ctx(), |ui| {
+                ui.vertical_centered(|ui| {
+                    if let Some(fail) = &self.fail{
+                        ui.code(fail).highlight();
+                    }
+                });
                 egui::Grid::new("my_grid")
                     .num_columns(3)
                     .spacing([40.0, 4.0])
                     .striped(true)
                     .show(ui, |ui| {
                         ui.label("控制");
-                        if ui.button("开始").clicked() {
-                            self.audio_stream = Some(Audio::new());
-                            self.audio_stream.as_mut().unwrap().start();
-                        }
-                        if ui.button("暂停").clicked() {
-                            self.audio_stream.as_mut().unwrap().stop();
-                        }
+                        egui::Frame::default()
+                            .show(ui, |ui| {
+                                if ui.button("开始").clicked() {
+                                    self.audio_stream = Some(Audio::new());
+                                    if let Err(e) = self.audio_stream.as_mut().unwrap().start(){
+                                        self.fail=Some(e.to_string());
+                                    }
+                                }
+                                if ui.button("暂停").clicked() {
+                                    self.audio_stream.as_mut().unwrap().stop();
+                                }
+                            });
                         ui.end_row();
                         ui.label("FFT 大小");
                         ui.add(
