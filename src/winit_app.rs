@@ -69,10 +69,11 @@ impl ApplicationHandler for App<'_> {
                 const TOUCHPAD_SENSITIVITY: f32 = 0.1;
                 const MOUSEWHEEL_SENSITIVITY: f32 = 0.1;
                 const SCALE_SPEED: f32 = 0.1;
+
                 let d: f32;
 
                 match delta {
-                    winit::event::MouseScrollDelta::LineDelta(x, y) => {
+                    winit::event::MouseScrollDelta::LineDelta(_, y) => {
                         d = y * MOUSEWHEEL_SENSITIVITY;
                     }
                     winit::event::MouseScrollDelta::PixelDelta(position) => {
@@ -80,16 +81,24 @@ impl ApplicationHandler for App<'_> {
                     }
                 }
                 //算出当前单位坐标系下鼠标的y轴坐标 和wgpu中保持一致
-                let y=self.mouse_position.y as f32/self.window.as_mut().unwrap().inner_size().height as f32;
+                let y = self.mouse_position.y as f32
+                    / self.window.as_mut().unwrap().inner_size().height as f32;
 
                 //算出鼠标在缩放后的视窗内的坐标
-                let t=self.scale.0+y*(self.scale.1-self.scale.0);
+                let t = self.scale.0 + y * (self.scale.1 - self.scale.0);
                 //缩放的幅度与边界与鼠标y轴的距离成正比
-                self.scale.0=self.scale.0+d*t*SCALE_SPEED;
-                self.scale.1=self.scale.1-d*(1.0-t)*SCALE_SPEED;
+
+                let new_s = (
+                    self.scale.0 + d * t * SCALE_SPEED,
+                    self.scale.1 - d * (1.0 - t) * SCALE_SPEED,
+                );
+                //如果新的 后者超过了前者 那就不使用新的
+                if new_s.0 < new_s.1 {
+                    self.scale = new_s;
+                }
                 //把结果的范围限制在0-1
-                self.scale.0=self.scale.0.clamp(0.0, 1.0);
-                self.scale.1=self.scale.1.clamp(0.0, 1.0);
+                self.scale.0 = self.scale.0.clamp(0.0, 1.0);
+                self.scale.1 = self.scale.1.clamp(0.0, 1.0);
                 // println!("{d} {y} {:?}", self.scale);
                 self.app.set_scale_parameters(self.scale);
             }

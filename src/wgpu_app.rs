@@ -9,13 +9,17 @@ use crate::{
 };
 use egui_wgpu::{
     wgpu::{
-        self, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, ColorWrites,
-        PipelineCompilationOptions, RenderPipeline,
+        self, util::{BufferInitDescriptor, DeviceExt}, BindGroupLayout, BindGroupLayoutDescriptor, BlendState, Buffer, BufferBinding, ColorWrites, PipelineCompilationOptions, RenderPipeline
     },
     ScreenDescriptor,
 };
 use winit::{event::WindowEvent, window::Window};
-
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct scale_factor {
+    a: f32,
+    b: f32,
+}
 pub struct WGPUState<'window> {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -24,7 +28,9 @@ pub struct WGPUState<'window> {
     pub window: Arc<Window>,
     pub screen_descriptor: ScreenDescriptor,
     pub pipeline: RenderPipeline,
-    pub bindgroup_layout: BindGroupLayout,}
+    pub bindgroup_layout: BindGroupLayout,
+    pub buffer:Buffer
+}
 impl<'window> WGPUState<'window> {
     async fn new(window: Arc<Window>) -> Self {
         //实例
@@ -64,7 +70,7 @@ impl<'window> WGPUState<'window> {
         surface.configure(&device, &surface_config); //使用设备配置surface
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
-            pixels_per_point: window.scale_factor() as f32 ,
+            pixels_per_point: window.scale_factor() as f32,
         };
 
         // let (_, texture_view, sampler) = load_img(&device, &queue);
@@ -89,7 +95,24 @@ impl<'window> WGPUState<'window> {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
+        });
+
+        //创建buffer 用来传递鼠标的缩放操作
+        let buffer = device.create_buffer_init( &BufferInitDescriptor{
+            label: None,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            contents: bytemuck::bytes_of(&scale_factor{a:0.0,b:1.0}),
         });
 
         //加载着色器
@@ -138,6 +161,7 @@ impl<'window> WGPUState<'window> {
             screen_descriptor,
             pipeline,
             bindgroup_layout,
+            buffer
         }
     }
 }
@@ -146,7 +170,6 @@ pub struct WGPUAPP<'a> {
     appgui: Option<EguiApp>,
     audio_compute: Option<Compute>,
     pub height: u32,
-
 }
 impl<'a> WGPUAPP<'a> {
     pub fn new() -> Self {
@@ -154,7 +177,7 @@ impl<'a> WGPUAPP<'a> {
             state: None,
             appgui: None,
             audio_compute: None,
-            height:1024/2         //这里要和初始的fftsize的一半保持一致
+            height: 1024 / 2, //这里要和初始的fftsize的一半保持一致
         }
     }
 
@@ -169,10 +192,7 @@ impl<'a> WGPUAPP<'a> {
             None,
             1,
         ));
-        self.audio_compute = Some(Compute::new(
-            self.state.as_ref().unwrap(),
-            self.height,
-        ));
+        self.audio_compute = Some(Compute::new(self.state.as_ref().unwrap(), self.height));
     }
     pub fn on_event(&mut self, window: &Window, e: &WindowEvent) {
         if let Some(r) = self.appgui.as_mut() {
@@ -180,7 +200,6 @@ impl<'a> WGPUAPP<'a> {
         }
     }
     pub fn on_resize(&mut self, w: u32, h: u32) {
-        println!("qw");
         let state = self.state.as_mut().unwrap();
         state.surface_config.width = w;
         state.surface_config.height = h;
@@ -193,8 +212,19 @@ impl<'a> WGPUAPP<'a> {
             .unwrap()
             .on_resize(state, self.height);
     }
-    pub fn set_scale_parameters(&mut self, scale:(f32,f32)) {
-        println!("{:?}",scale);
+    pub fn set_scale_parameters(&mut self, scale: (f32, f32)) {
+        let s=scale_factor{
+            a:scale.0,
+            b:scale.1
+        };
+        let state = self.state.as_mut().unwrap();
+        state.queue.write_buffer(
+            &state.buffer,
+            0,
+            bytemuck::bytes_of(&s)
+        );
+        state.queue.submit([]);
+        // println!("{:?}", scale);
     }
     pub fn update(&mut self) {
         let state = self.state.as_mut().unwrap();
@@ -205,26 +235,16 @@ impl<'a> WGPUAPP<'a> {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        
+
         //如果有新数据 上计算pass
         while let Some(d) = self.appgui.as_mut().unwrap().get_audio_stream_data() {
-            // let start = SystemTime::now();
-            // let since_the_epoch = start
-            //     .duration_since(UNIX_EPOCH)
-            //     .expect("Time went backwards");
-            // let ms = since_the_epoch.as_secs() * 1000 + since_the_epoch.subsec_millis() as u64;
-            // let t: Vec<f32> = (1..4096)
-            //     .into_iter()
-            //     .map(|x| f64::sin((x as f64 + ms as f64) / 50.0) as f32)
-            //     .collect();
-            // println!("{:?}",t);
-            if self.height!=d.1/2 as u32 {
+            if self.height != d.1 / 2 as u32 {
                 //如果fftsize发生了改变 那么通过计算pass更变高度
-                self.height = d.1/2 as u32;
+                self.height = d.1 / 2 as u32;
                 self.audio_compute
-                .as_mut()
-                .unwrap()
-                .on_resize(state, self.height);
+                    .as_mut()
+                    .unwrap()
+                    .on_resize(state, self.height);
             }
             let mut encoder =
                 state
@@ -237,7 +257,7 @@ impl<'a> WGPUAPP<'a> {
             self.audio_compute
                 .as_mut()
                 .unwrap()
-                .update_data(&state.queue, d.0.as_slice(),d.2);
+                .update_data(&state.queue, d.0.as_slice(), d.2);
             self.audio_compute
                 .as_mut()
                 .unwrap()
@@ -274,6 +294,14 @@ impl<'a> WGPUAPP<'a> {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(BufferBinding {
+                        buffer: &state.buffer,
+                        offset: 0,
+                        size: None,
+                    }),
                 },
             ],
             label: Some("diffuse_bind_group"),

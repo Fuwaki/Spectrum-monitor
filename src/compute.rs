@@ -28,7 +28,6 @@ pub struct SampleData {
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>, height: u32) -> Texture {
-        println!("{}",height);
         state.device.create_texture(&TextureDescriptor {
             label,
             size: wgpu::Extent3d {
