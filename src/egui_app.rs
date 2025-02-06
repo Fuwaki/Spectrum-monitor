@@ -16,6 +16,7 @@ pub struct EguiApp {
     buffer_remain: usize,
     select_fftwindow: FFTWindow,
     fftsize: u32,
+    value_gain_factor:f32,
 }
 impl EguiApp {
     pub fn new(
@@ -68,6 +69,7 @@ impl EguiApp {
             buffer_remain: 0,
             select_fftwindow: FFTWindow::Hanning,
             fftsize: 1024,
+            value_gain_factor:0.15
         }
     }
     pub fn on_input_event(
@@ -109,6 +111,12 @@ impl EguiApp {
                                 .logarithmic(true)
                         );
                         ui.end_row();
+                        ui.label("值增益系数");
+                        ui.add(
+                            egui::Slider::new(&mut self.value_gain_factor, 0.1..=0.9)
+                                .logarithmic(true)
+                        );
+                        ui.end_row();
                         ui.label("FFT 窗函数");
                         egui::ComboBox::from_label("")
                             .selected_text(format!("{:?}", self.select_fftwindow))
@@ -123,19 +131,30 @@ impl EguiApp {
                                     FFTWindow::Rectangular,
                                     "Rectangular",
                                 );
+                                ui.selectable_value(
+                                    &mut self.select_fftwindow,
+                                    FFTWindow::Hamming,
+                                    "Hamming",
+                                );
+                                ui.selectable_value(
+                                    &mut self.select_fftwindow,
+                                    FFTWindow::Blackman,
+                                    "Blackman",
+                                );
                             });
                         ui.end_row();
+
                     });
                 ui.separator();
                 ui.label(format!("帧率：{:.2}", self.frame_counter.avg_frame_rate()));
                 ui.label(format!("未播放缓冲区：{:.2}", self.buffer_remain));
             });
     }
-    //咱这个函数返回的元祖的第二个元素是当前的fft大小
-    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, u32)> {
+    //咱这个函数返回的元祖的第二个元素是当前的fft大小 第三个是因数
+    pub fn get_audio_stream_data(&mut self) -> Option<(Vec<f32>, u32,f32)> {
         let a = self.audio_stream.as_mut()?.fetch_data();
         self.buffer_remain = a.as_ref()?.1;
-        Some((a.unwrap().0, self.fftsize ))
+        Some((a.unwrap().0, self.fftsize,self.value_gain_factor ))
         
         
     }

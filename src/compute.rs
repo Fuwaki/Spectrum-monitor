@@ -24,6 +24,7 @@ pub struct Compute {
 pub struct SampleData {
     pub data: [f32; MAX_BUFFER_SIZE],
     pub length: u32,
+    pub factor:f32
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>, height: u32) -> Texture {
@@ -43,7 +44,7 @@ impl Compute {
             view_formats: &[],
         })
     }
-    pub fn update_data(&self, queue: &Queue, data: &[f32]) {
+    pub fn update_data(&self, queue: &Queue, data: &[f32],factor:f32) {
         assert!(data.len() < MAX_BUFFER_SIZE, "数据超过最大缓冲区");
         let d = SampleData {
             data: {
@@ -52,6 +53,7 @@ impl Compute {
                 array
             },
             length: data.len() as u32,
+            factor
         };
         queue.write_buffer(&self.sample_buffer, 0, bytemuck::bytes_of(&d));
         queue.submit([]);
@@ -62,6 +64,7 @@ impl Compute {
         let mut data = SampleData {
             data: [0.0; MAX_BUFFER_SIZE],
             length: MAX_BUFFER_SIZE as u32,
+            factor:0.15
         };
 
         let texture_a = Self::create_texture(state, Some("texture_a"), height);
@@ -149,6 +152,7 @@ impl Compute {
         }
     }
     pub fn on_resize(&mut self, state: &WGPUState, height: u32) {
+        self.height = height;
         self.textures[0] = Self::create_texture(state, Some("texture_a"), height);
         self.textures[1] = Self::create_texture(state, Some("texture_b"), height);
     }

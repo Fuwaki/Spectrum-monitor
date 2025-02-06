@@ -64,7 +64,7 @@ impl<'window> WGPUState<'window> {
         surface.configure(&device, &surface_config); //使用设备配置surface
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [surface_config.width, surface_config.height],
-            pixels_per_point: window.scale_factor() as f32 * 1.3,
+            pixels_per_point: window.scale_factor() as f32 ,
         };
 
         // let (_, texture_view, sampler) = load_img(&device, &queue);
@@ -193,6 +193,9 @@ impl<'a> WGPUAPP<'a> {
             .unwrap()
             .on_resize(state, self.height);
     }
+    pub fn set_scale_parameters(&mut self, scale:(f32,f32)) {
+        println!("{:?}",scale);
+    }
     pub fn update(&mut self) {
         let state = self.state.as_mut().unwrap();
         let output = state
@@ -202,7 +205,7 @@ impl<'a> WGPUAPP<'a> {
         let view = output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-
+        
         //如果有新数据 上计算pass
         while let Some(d) = self.appgui.as_mut().unwrap().get_audio_stream_data() {
             // let start = SystemTime::now();
@@ -234,7 +237,7 @@ impl<'a> WGPUAPP<'a> {
             self.audio_compute
                 .as_mut()
                 .unwrap()
-                .update_data(&state.queue, d.0.as_slice());
+                .update_data(&state.queue, d.0.as_slice(),d.2);
             self.audio_compute
                 .as_mut()
                 .unwrap()

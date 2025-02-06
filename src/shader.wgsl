@@ -30,7 +30,8 @@ var texture: texture_2d<f32>;
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    var temp=vec4(textureSample(texture, texture_sampler, vec2<f32>(input.uv.x,input.uv.y)));
+
+    var temp=vec4(textureSample(texture, texture_sampler, vec2<f32>(input.uv.x,input.uv.y)+vec2f(0.05,0.0)));
     // var temp = textureLoad(texture, input.uv, 0);
     return vec4(temp.xyz, 1.0);
     // return vec4(texture,1.0);

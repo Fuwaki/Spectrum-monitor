@@ -11,12 +11,14 @@ pub struct Audio {
     rx: mpsc::Receiver<Vec<f32>>,
     tx: mpsc::Sender<Vec<f32>>,
     fftsize: usize,
-    fftwindow: FFTWindow
+    fftwindow: FFTWindow,
 }
-#[derive(Debug,Clone,Copy,PartialEq)]
-pub enum FFTWindow{
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum FFTWindow {
     Rectangular,
-    Hanning
+    Hanning,
+    Hamming,
+    Blackman,
 }
 impl Audio {
     fn create_stream(tx: mpsc::Sender<Vec<f32>>) -> Result<Stream, anyhow::Error> {
@@ -51,13 +53,13 @@ impl Audio {
             rx,
             tx,
             fftsize: 1024,
-            fftwindow: FFTWindow::Hanning
+            fftwindow: FFTWindow::Hanning,
         }
     }
     pub fn start(&mut self) {
         self.stream = Some(Audio::create_stream(self.tx.clone()).unwrap());
     }
-    fn fft_window(pcm_data: &mut Vec<f32>,window_func:FFTWindow) {
+    fn fft_window(pcm_data: &mut Vec<f32>, window_func: FFTWindow) {
         let len = pcm_data.len();
         match window_func {
             FFTWindow::Rectangular => {
@@ -65,20 +67,38 @@ impl Audio {
             }
             FFTWindow::Hanning => {
                 for n in 0..len {
-                    let multiplier = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / (len as f32 - 1.0)).cos());
+                    let multiplier = 0.5
+                        * (1.0
+                            - (2.0 * std::f32::consts::PI * n as f32 / (len as f32 - 1.0)).cos());
+                    pcm_data[n] *= multiplier;
+                }
+            }
+            FFTWindow::Hamming => {
+                for n in 0..len {
+                    let multiplier = 0.54
+                        - 0.46 * (2.0 * std::f32::consts::PI * n as f32 / (len as f32 - 1.0)).cos();
+                    pcm_data[n] *= multiplier;
+                }
+            }
+            FFTWindow::Blackman => {
+                for n in 0..len {
+                    let multiplier = 0.42
+                        - 0.5 * (2.0 * std::f32::consts::PI * n as f32 / (len as f32 - 1.0)).cos()
+                        + 0.08 * (4.0 * std::f32::consts::PI * n as f32 / (len as f32 - 1.0)).cos();
                     pcm_data[n] *= multiplier;
                 }
             }
         }
     }
-    pub fn set_fft_window_func(&mut self,window_func:FFTWindow){
-        self.fftwindow=window_func
+
+    pub fn set_fft_window_func(&mut self, window_func: FFTWindow) {
+        self.fftwindow = window_func
     }
-    pub fn set_fft_size(&mut self,fftsize:usize){
-        self.fftsize=fftsize
+    pub fn set_fft_size(&mut self, fftsize: usize) {
+        self.fftsize = fftsize
     }
 
-    fn do_fft(&self,mut pcm_data: Vec<f32>) -> Vec<f32> {
+    fn do_fft(&self, mut pcm_data: Vec<f32>) -> Vec<f32> {
         // Perform a forward FFT of size 1234
         use rustfft::{num_complex::Complex, FftPlanner};
         Audio::fft_window(&mut pcm_data, self.fftwindow);
@@ -95,14 +115,14 @@ impl Audio {
         fft.process(&mut b);
         // println!("{:+.2}", b[0].re);
         let effective = &b[0..b.len() / 2 + 1];
-        let magnitudes: Vec<f32> = effective.iter().map(|item| item.abs()*2.0).collect();       //乘以2 因为我们取的是单边 作补偿
-        // println!("{:?}",magnitudes);
+        let magnitudes: Vec<f32> = effective.iter().map(|item| item.abs() * 2.0).collect(); //乘以2 因为我们取的是单边 作补偿
+                                                                                            // println!("{:?}",magnitudes);
         magnitudes
     }
-    pub fn fetch_data(&self) -> Option<(Vec<f32>,usize)> {
+    pub fn fetch_data(&self) -> Option<(Vec<f32>, usize)> {
         static mut temp: Vec<f32> = Vec::new();
-        while let Ok(mut msg) = self.rx.try_recv()   {
-            unsafe{
+        while let Ok(mut msg) = self.rx.try_recv() {
+            unsafe {
                 temp.extend(msg.drain(..));
             }
         }
@@ -119,5 +139,4 @@ impl Audio {
     pub fn stop(&mut self) -> () {
         self.stream.as_ref().unwrap().pause().unwrap();
     }
-
 }
