@@ -1,5 +1,5 @@
 use rustfft::num_complex::ComplexFloat;
-use std::{cell::RefCell, str::SplitWhitespace, sync::mpsc, thread::spawn};
+use std::sync::mpsc;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},

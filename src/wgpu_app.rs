@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    compute::{Compute, SampleData},
+    compute::Compute,
     egui_app::EguiApp,
 };
 use egui_wgpu::{

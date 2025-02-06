@@ -3,7 +3,7 @@ use crate::{
     wgpu_app::WGPUState,
 };
 use audio::Audio;
-use egui::{viewport, Color32, ComboBox, Context, Frame};
+use egui::{viewport, Color32, Context, Frame, Margin, Rounding};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 use frame_counter::FrameCounter;
@@ -91,10 +91,17 @@ impl EguiApp {
             .resizable(true)
             .vscroll(true)
             .default_open(false)
-            .frame(Frame::default().fill(Color32::from_hex("#10101080").unwrap()))
+            .frame(
+                Frame::default()
+                    .fill(Color32::from_hex("#10101080").unwrap())
+                    .inner_margin(Margin::same(10.0))
+                    .rounding(Rounding::same(10.0)),
+            )
+            .default_height(200.0)
+            .default_open(true)
             .show(self.state.egui_ctx(), |ui| {
                 egui::Grid::new("my_grid")
-                    .num_columns(2)
+                    .num_columns(3)
                     .spacing([40.0, 4.0])
                     .striped(true)
                     .show(ui, |ui| {
@@ -108,7 +115,9 @@ impl EguiApp {
                         }
                         ui.end_row();
                         ui.label("FFT 大小");
-                        ui.add(egui::Slider::new(&mut self.fftsize, 32..=4096*4).logarithmic(true));
+                        ui.add(
+                            egui::Slider::new(&mut self.fftsize, 32..=4096 * 4).logarithmic(true),
+                        );
                         ui.end_row();
                         ui.label("值增益系数");
                         ui.add(
