@@ -25,13 +25,13 @@ impl Audio {
     fn create_stream(tx: mpsc::Sender<Vec<f32>>) -> Result<Stream, anyhow::Error> {
         let host = cpal::default_host();
         let device = host.default_input_device().expect("找不到默认输入设备");
-        let default_config = device.default_input_config()?;
-        let config = SupportedStreamConfig::new(
-            default_config.channels(),
-            SampleRate(44100), //TODO: 这里可以以后设计成可变的 但是分析了一下其实意义不大 采样率的提高不会带来频谱精度的提升 只会带来频率广度的提升 而超声波一般来说设备没有记录
-            *default_config.buffer_size(),
-            cpal::SampleFormat::F32,
-        );
+        let config = device.default_input_config()?;
+        // let config = SupportedStreamConfig::new(
+        //     default_config.channels(),
+        //     SampleRate(44100), //TODO: 这里可以以后设计成可变的 但是分析了一下其实意义不大 采样率的提高不会带来频谱精度的提升 只会带来频率广度的提升 而超声波一般来说设备没有记录
+        //     *default_config.buffer_size(),
+        //     cpal::SampleFormat::F32,
+        // );
         let err_fn = move |err| {
             panic!("an error occurred on stream: {}", err);
         };

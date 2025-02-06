@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 mod wgpu_app;
 mod egui_app;
 mod winit_app;
