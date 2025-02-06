@@ -33,14 +33,13 @@ impl Audio {
             cpal::SampleFormat::F32,
         );
         let err_fn = move |err| {
-            eprintln!("an error occurred on stream: {}", err);
+            panic!("an error occurred on stream: {}", err);
         };
 
         let channels = config.channels();
         let stream = device.build_input_stream(
             &config.into(),
             move |data: &[f32], _| {
-                println!("{:?}", data.len());
                 //声道转换
                 let mut mono_data = Vec::with_capacity(data.len() / channels as usize);
                 for i in (0..data.len()).step_by(channels as usize) {
