@@ -29,11 +29,11 @@ impl std::fmt::Display for FFTWindow {
             f,
             "{}",
             match self {
-                FFTWindow::Rectangular => "Rectangular",
+                FFTWindow::Rectangular => "矩形窗",
 
-                FFTWindow::Hanning => "Hanning",
-                FFTWindow::Hamming => "Hamming",
-                FFTWindow::Blackman => "Blackman",
+                FFTWindow::Hanning => "汉宁窗",
+                FFTWindow::Hamming => "汉明窗",
+                FFTWindow::Blackman => "布莱克曼窗",
             }
         )
     }

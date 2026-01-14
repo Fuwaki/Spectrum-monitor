@@ -47,7 +47,8 @@ struct LineUniforms {
     gain: f32,
     data_length: u32,
     height: u32,
-    _pad: [u32; 2],  // 对齐到 16 字节
+    smoothing_factor: u32,
+    _pad: u32,  // padding
 }
 
 /// 频谱绘制原语，携带每帧的数据
@@ -721,7 +722,8 @@ impl LinePipeline {
             gain: 0.15,
             data_length: 0,
             height: 512,
-            _pad: [0; 2],
+            smoothing_factor: 1,
+            _pad: 0,
         };
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("line_uniform_buffer"),
@@ -779,6 +781,7 @@ impl shader::Primitive for SpectrumLinePrimitive {
         let pipeline = storage.get_mut::<LinePipeline>().unwrap();
 
         // 更新 uniform buffer
+        let smoothing_factor = 10;
         let uniforms = LineUniforms {
             scale_a: self.scale_a,
             scale_b: self.scale_b,
@@ -786,7 +789,8 @@ impl shader::Primitive for SpectrumLinePrimitive {
             gain: self.gain_factor,
             data_length: self.data_length,
             height: self.height,
-            _pad: [0; 2],
+            smoothing_factor,
+            _pad: 0,
         };
         queue.write_buffer(&pipeline.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
@@ -848,9 +852,23 @@ impl shader::Primitive for SpectrumLinePrimitive {
         render_pass.set_pipeline(&pipeline.pipeline);
         render_pass.set_bind_group(0, &pipeline.bind_group, &[]);
         
-        // 绘制折线 - 使用 LineStrip，每个数据点一个顶点
+        // 绘制折线 - 使用 LineStrip
+        // 增加顶点数量以支持平滑插值 (Catmull-Rom spline)
+        // 顶点数 = (数据点数 - 1) * smoothing_factor + 1
+        // 但为了简单，直接用 data_length * smoothing_factor，shader 处理边界
         if self.data_length > 1 {
-            render_pass.draw(0..self.data_length, 0..1);
+            // 从 uniform buffer 读取 smoothing_factor 有点麻烦，这里硬编码一致的或者通过 self 传递
+            // 我们在 prepare 里硬编码了 10
+            let smoothing_factor = 10;
+            let vertex_count = if self.data_length > 0 {
+                (self.data_length - 1) * smoothing_factor + 1
+            } else {
+                0
+            };
+            
+            if vertex_count > 0 {
+                render_pass.draw(0..vertex_count, 0..1);
+            }
         }
     }
 }

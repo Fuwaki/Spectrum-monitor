@@ -11,8 +11,10 @@ const MAX_BUFFER_SIZE: usize = 16384;
 /// 频谱显示场景，存储待渲染的数据
 #[derive(Clone)]
 pub struct SpectrumScene {
-    /// 频谱数据 (FFT结果的幅度)
+    /// 频谱数据 (FFT结果的幅度) - 原始数据，用于瀑布图
     spectrum_data: Vec<f32>,
+    /// 平滑后的频谱数据 - 用于折线图
+    smoothed_spectrum_data: Vec<f32>,
     /// 数据长度
     data_length: u32,
     /// 增益因子
@@ -34,6 +36,7 @@ impl SpectrumScene {
     pub fn new(texture_height: u32) -> Self {
         Self {
             spectrum_data: vec![0.0; MAX_BUFFER_SIZE],
+            smoothed_spectrum_data: vec![0.0; MAX_BUFFER_SIZE],
             data_length: 0,
             gain_factor: 0.15,
             log_scale: 0.5,
@@ -52,7 +55,34 @@ impl SpectrumScene {
         }
         
         let len = data.len().min(MAX_BUFFER_SIZE);
+        
+        // 更新原始数据 (用于瀑布图)
         self.spectrum_data[..len].copy_from_slice(&data[..len]);
+        
+        // 更新平滑数据 (用于折线图)
+        // 采用 "快起慢落" (Fast Attack, Slow Release) 策略
+        // 这种策略在专业音频分析中非常常见，既能捕捉瞬态(如鼓点)，又能平滑显示衰减
+        let decay_factor = 0.5; // 衰减系数 (0.0-1.0)，越大下落越慢
+        
+        for i in 0..len {
+            let raw_val = data[i];
+            let smooth_val = self.smoothed_spectrum_data[i];
+            
+            if raw_val > smooth_val {
+                // Attack: 立即更新，捕捉瞬态
+                self.smoothed_spectrum_data[i] = raw_val;
+            } else {
+                // Decay: 线性或指数衰减
+                self.smoothed_spectrum_data[i] = smooth_val * decay_factor + raw_val * (1.0 - decay_factor);
+            }
+        }
+        // 如果数据长度变短了，要把后面的清零防止画出旧数据
+        if (len as usize) < self.smoothed_spectrum_data.len() {
+             // 实际上只需要确保 display loop 只读到 len 即可，清零不是必须的
+             // 但为了安全可以重置
+             // self.smoothed_spectrum_data[len..].fill(0.0);
+        }
+
         self.data_length = len as u32;
         self.gain_factor = gain;
         self.data_version = self.data_version.wrapping_add(1);
@@ -103,7 +133,7 @@ impl SpectrumScene {
     /// 返回: (spectrum_data, data_length, gain_factor, log_scale, scale_a, scale_b)
     pub fn get_line_data(&self) -> (Vec<f32>, u32, f32, f32, f32, f32) {
         (
-            self.spectrum_data.clone(),
+            self.smoothed_spectrum_data.clone(), // 使用平滑后的数据
             self.data_length,
             self.gain_factor,
             self.log_scale,
