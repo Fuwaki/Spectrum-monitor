@@ -1,12 +1,12 @@
 // 将历史纹理左移一列，并在最右侧添加新数据
-@group(0) @binding(0) var history_tex: texture_2d<f32>;
-@group(0) @binding(1) var current_tex: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(0) var current_tex: texture_storage_2d<rgba8unorm, write>;
 struct SampleData {
     data: array<f32, 16384>,
     length: u32,
     factor: f32,
+    write_x: u32,
 };
-@group(0) @binding(2)
+@group(0) @binding(1)
 var<storage,read> sampleData: SampleData;
 fn hsv2rgb(h: f32, s: f32, v: f32) -> vec3f {
 
@@ -50,25 +50,19 @@ fn qwq(g: f32) -> vec3f {
 
     return hsv2rgb(hue, saturation, value);
 }
-@compute @workgroup_size(32,8)
+@compute @workgroup_size(1,8)
 
 
 fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
-
-    if any(id.xy >= textureDimensions(current_tex).xy) { return; }
-    let id_f32: vec3<f32> = vec3<f32>(id);
-    // textureStore(current_tex,id.xy,vec4<f32>(log(id_f32.x/100+1)/10,0.5,0.9,1.0));
-    // 目标坐标：当前像素
-    let dst_pixel = id.xy;
-
-    // 如果目标在右侧新列（绘制新频谱条）
-    if dst_pixel.x == textureDimensions(history_tex).x - 1 {
-        textureStore(current_tex, dst_pixel, vec4(qwq(sampleData.data[dst_pixel.y]), 1.0));
-        // textureStore(current_tex, dst_pixel, vec4(1.0,0.0,0.0, 1.0));
+    if any(id.xy >= vec2(1, textureDimensions(current_tex).y)) { return; }
+    
+    // 我们只处理 y 轴，x 轴由 sampleData.write_x 决定
+    let dst_pixel = vec2<u32>(sampleData.write_x, id.y);
+    
+    // 如果 y 超出数据范围，写入黑色或不做处理
+    if id.y < sampleData.length {
+        textureStore(current_tex, dst_pixel, vec4(qwq(sampleData.data[id.y]), 1.0));
     } else {
-        // 从历史纹理的右侧一列采样（实现左移）
-        let src_pixel = vec2<u32>(dst_pixel.x + 1, dst_pixel.y);
-        let color = textureLoad(history_tex, src_pixel, 0);
-        textureStore(current_tex, dst_pixel, color);
+        textureStore(current_tex, dst_pixel, vec4(0.0, 0.0, 0.0, 1.0));
     }
 }

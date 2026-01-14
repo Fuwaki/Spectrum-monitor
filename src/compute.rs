@@ -12,12 +12,12 @@ use egui_wgpu::wgpu::{
 };
 const MAX_BUFFER_SIZE: usize = 16384; //记得和计算着色器中保持一致
 pub struct Compute {
-    textures: [wgpu::Texture; 2],
-    current_index: u8,
+    texture: wgpu::Texture,
+    current_index: u32,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sample_buffer: wgpu::Buffer,
-    height: u32, //宽度我们用屏幕的宽度就好 但是高度我们要的是fft的大小 所以单独指定
+    size: (u32, u32),
 }
 #[repr(C)]
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,6 +25,8 @@ pub struct SampleData {
     pub data: [f32; MAX_BUFFER_SIZE],
     pub length: u32,
     pub factor: f32,
+    pub write_x: u32,
+    pub _pad: u32, // Padding to maintain alignment if necessary, though u32+u32+u32+u32 is 16 bytes aligned anyway.
 }
 impl Compute {
     fn create_texture(state: &WGPUState, label: Option<&str>, height: u32) -> Texture {
@@ -43,8 +45,13 @@ impl Compute {
             view_formats: &[],
         })
     }
-    pub fn update_data(&self, queue: &Queue, data: &[f32], factor: f32) {
+    pub fn update_data(&mut self, queue: &Queue, data: &[f32], factor: f32) {
         assert!(data.len() < MAX_BUFFER_SIZE, "数据超过最大缓冲区");
+        // write_x should range from 0 to width-1
+        // We write to current position, then increment for next time
+        let write_pos = self.current_index;
+        self.current_index = (self.current_index + 1) % self.size.0;
+        
         let d = SampleData {
             data: {
                 let mut array = [0.0; MAX_BUFFER_SIZE];
@@ -53,6 +60,8 @@ impl Compute {
             },
             length: data.len() as u32,
             factor,
+            write_x: write_pos,
+            _pad: 0,
         };
         queue.write_buffer(&self.sample_buffer, 0, bytemuck::bytes_of(&d));
         queue.submit([]);
@@ -64,10 +73,11 @@ impl Compute {
             data: [0.0; MAX_BUFFER_SIZE],
             length: MAX_BUFFER_SIZE as u32,
             factor: 0.15,
+            write_x: 0,
+            _pad: 0,
         };
 
-        let texture_a = Self::create_texture(state, Some("texture_a"), height);
-        let texture_b = Self::create_texture(state, Some("texture_b"), height);
+        let texture = Self::create_texture(state, Some("texture"), height);
         let sample_buffer = state.device.create_buffer_init(&BufferInitDescriptor {
             label: Some("AudioSample Buffer"),
             contents: bytemuck::bytes_of(&data), //把数据填进去
@@ -79,20 +89,9 @@ impl Compute {
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("compute_bind_group_layout"),
                     entries: &[
-                        //第一个是历史纹理 所以readonly
+                        // 当前纹理 (Storage)
                         BindGroupLayoutEntry {
                             binding: 0,
-                            visibility: ShaderStages::COMPUTE,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        //第二个是当前纹理
-                        BindGroupLayoutEntry {
-                            binding: 1,
                             visibility: ShaderStages::COMPUTE,
                             ty: wgpu::BindingType::StorageTexture {
                                 access: wgpu::StorageTextureAccess::WriteOnly,
@@ -101,9 +100,9 @@ impl Compute {
                             },
                             count: None,
                         },
-                        //音频频谱数据
+                        // 音频频谱数据
                         BindGroupLayoutEntry {
-                            binding: 2,
+                            binding: 1,
                             visibility: ShaderStages::COMPUTE,
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -114,6 +113,7 @@ impl Compute {
                         },
                     ],
                 });
+
 
         //计算着色器
         let compute_shader = state
@@ -142,25 +142,24 @@ impl Compute {
                 cache: None,
             });
         Self {
-            textures: [texture_a, texture_b],
+            texture,
             current_index: 0,
             pipeline: compute_pipline,
             bind_group_layout,
             sample_buffer,
-            height,
+            size: (state.surface_config.width, height), // Store width as well
         }
     }
     pub fn on_resize(&mut self, state: &WGPUState, height: u32) {
-        self.height = height;
-        self.textures[0] = Self::create_texture(state, Some("texture_a"), height);
-        self.textures[1] = Self::create_texture(state, Some("texture_b"), height);
+        self.size = (state.surface_config.width, height);
+        self.texture = Self::create_texture(state, Some("texture"), height);
+        // Reset or keep index? Keeping index might cause jump if width changed drastically, but it's simpler.
+        // We probably should reset current_index if width changes.
+        self.current_index = 0; 
     }
     pub fn update(&mut self, state: &WGPUState, encoder: &mut wgpu::CommandEncoder) {
-        let current_texture = &self.textures[(self.current_index % 2) as usize];
-        let history_texture = &self.textures[(1 - self.current_index % 2) as usize];
-        let current_view = current_texture.create_view(&TextureViewDescriptor::default());
-        let history_view = history_texture.create_view(&TextureViewDescriptor::default());
-        //上面绑定组布局告诉有哪些资源 这个地方是指定实际资源的地方
+        let current_view = self.texture.create_view(&TextureViewDescriptor::default());
+
         let bind_group = state.device.create_bind_group(&BindGroupDescriptor {
             layout: &self.bind_group_layout,
             entries: &[
@@ -170,10 +169,6 @@ impl Compute {
                 },
                 BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&history_view),
-                },
-                BindGroupEntry {
-                    binding: 2,
                     resource: wgpu::BindingResource::Buffer(BufferBinding {
                         buffer: &self.sample_buffer,
                         offset: 0,
@@ -183,7 +178,7 @@ impl Compute {
             ],
             label: Some("compute_bind_group"),
         });
-        const WORKGROUP_SIZE: (u32, u32) = (32, 8); //和计算着色器中保持一致
+        const WORKGROUP_SIZE: (u32, u32) = (1, 8); // Modified to 1, 8. Dispatch X is 1.
 
         //开始计算
         let mut compute_pass = encoder.begin_compute_pass(&ComputePassDescriptor::default());
@@ -194,18 +189,20 @@ impl Compute {
         //分发工作
 
         /*
-        工作组大小是一个工作组处理多少个线程
-        然后dispatch是指定在各个维度创建多少个工作组
+        We only dispatch 1 workgroup in X, covering the single column we are writing to.
         */
-        let dispatch_x = (state.surface_config.width + WORKGROUP_SIZE.0 - 1) / WORKGROUP_SIZE.0;
-        let dispatch_y = (self.height + WORKGROUP_SIZE.1 - 1) / WORKGROUP_SIZE.1;
+        let dispatch_x = 1;
+        let dispatch_y = (self.size.1 + WORKGROUP_SIZE.1 - 1) / WORKGROUP_SIZE.1;
         compute_pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
-        self.current_index += 1;
-        self.current_index %= 2;
+        // Index increment is done in update_data
     }
     pub fn output(&self) -> &egui_wgpu::wgpu::Texture {
-        //返回上一次绘制完的 也就是这一次为“历史”的
-        let current_texture = &self.textures[(1 - self.current_index % 2) as usize];
-        current_texture
+        &self.texture
+    }
+    pub fn get_offset(&self) -> f32 {
+        if self.size.0 == 0 { return 0.0; }
+        // Return the normalized position of the LAST written column
+        let last_index = (self.current_index + self.size.0 - 1) % self.size.0;
+        last_index as f32 / self.size.0 as f32
     }
 }

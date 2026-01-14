@@ -20,6 +20,7 @@ struct ScaleFactor {
     a: f32,
     b: f32,
     log: f32,
+    offset: f32,
 }
 pub struct WGPUState<'window> {
     pub device: wgpu::Device,
@@ -117,6 +118,7 @@ impl<'window> WGPUState<'window> {
                 a: 0.0,
                 b: 1.0,
                 log: 0.5,
+                offset: 0.0,
             }),
         });
 
@@ -228,10 +230,12 @@ impl<'a> WGPUAPP<'a> {
         self.scale = scale;
     }
     fn update_scale_parameters(&mut self) {
+        let offset = if let Some(c) = &self.audio_compute { c.get_offset() } else { 0.0 };
         let s = ScaleFactor {
             a: self.scale.0,
             b: self.scale.1,
             log: 1.0 - self.appgui.as_mut().unwrap().log_scale,
+            offset,
         };
         let state = self.state.as_mut().unwrap();
         state

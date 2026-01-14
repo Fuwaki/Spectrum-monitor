@@ -3,7 +3,7 @@ use crate::{
     wgpu_app::WGPUState,
 };
 use audio::Audio;
-use egui::{viewport, Color32, Context, Frame, Margin, Rounding};
+use egui::{viewport, Color32, Context, Frame, Margin, Rounding, Stroke, Visuals, Shadow};
 use egui_wgpu::Renderer;
 use egui_winit::State;
 use frame_counter::FrameCounter;
@@ -46,6 +46,28 @@ impl EguiApp {
             .unwrap()
             .push("my_font".to_owned());
         egui_ctx.set_fonts(font);
+
+        // --- 设置现代化的外观 (Modern Visuals) ---
+        let mut visuals = Visuals::dark();
+        visuals.window_rounding = Rounding::same(12.0); // 更大的圆角
+        // visuals.window_shadow = Shadow::big_dark(); // 更柔和的阴影
+        
+        // 半透明的面板背景
+        visuals.widgets.noninteractive.weak_bg_fill = Color32::from_black_alpha(20); 
+        visuals.widgets.noninteractive.bg_fill = Color32::from_black_alpha(180); 
+        visuals.window_fill = Color32::from_black_alpha(160); // 窗口背景半透明
+        
+        // 交互组件样式 (像按钮、滑块)
+        visuals.widgets.inactive.bg_fill = Color32::from_white_alpha(10); // 默认微亮
+        visuals.widgets.hovered.bg_fill = Color32::from_white_alpha(30);  // 悬停变亮
+        visuals.widgets.active.bg_fill = Color32::from_white_alpha(50);   // 点击更亮
+        
+        // 边框样式
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, Color32::from_white_alpha(20));
+        visuals.selection.bg_fill = Color32::from_rgb(100, 160, 255); // 强调色：天蓝色
+        
+        egui_ctx.set_visuals(visuals);
+        // -------------------------------------
 
         let egui_state = State::new(
             egui_ctx,

@@ -1,0 +1,8 @@
+[build]
+rustflags = ["-C", "target-feature=-avx512f"]
+incremental = true
+[unstable]
+codegen-backend = true
+
+[profile.dev]
+codegen-backend = "cranelift"

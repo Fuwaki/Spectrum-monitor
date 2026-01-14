@@ -1,23 +1,18 @@
 [package]
 name = "spectrum_monitor"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0.95"
-bytemuck = { version = "1.21.0", features = ["min_const_generics"] }
-cpal = "0.15.3"
-egui = "0.30.0"
-egui-wgpu = "0.30.0"
-egui-winit = "0.30.0"
-env_logger = "0.11.6"
-frame_counter = "0.1.2"
-# image = "0.25.5"
-pollster = "0.4.0"
-rand = "0.9.0"
-rustfft = "6.2.0"
-# wgpu = "24.0.1"   #好像用egui_wgpu包含的就好
-winit = "0.30.8"
+anyhow = "1.0"
+bytemuck = { version = "1.16", features = ["derive"] }
+cpal = "0.15"
+env_logger = "0.11"
+iced = { version = "0.13", features = ["wgpu", "advanced", "tokio", "debug", "canvas"] }
+rustfft = "6.2"
+
+
 [profile.release]
 strip = true  # 自动从二进制文件去除符号信息.
 lto = true
+

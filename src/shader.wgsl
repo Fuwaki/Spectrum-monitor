@@ -5,7 +5,13 @@ struct VertexOutput {
 struct ScaleFactor {
     a: f32,
     b: f32,
-    l: f32
+    l: f32,
+    offset: f32,
+    // Viewport 信息 (物理像素坐标)
+    viewport_x: f32,
+    viewport_y: f32,
+    viewport_width: f32,
+    viewport_height: f32,
 }
 @group(0) @binding(0)
 var texture_sampler: sampler;
@@ -36,25 +42,87 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    // 调整此参数以控制对数刻度程度，a越大低频扩展越明显
-    var a = sf.l;
-    a *= -1.0;
-    // 对y坐标进行缩放 到缩放参数指定的区间内
-    let y = sf.a + input.uv.y * (sf.b - sf.a);
+    // input.position 是像素坐标 (物理像素)
+    // 计算相对于 viewport 的归一化坐标
+    let pixel_x = input.position.x;
+    let pixel_y = input.position.y;
     
-    // 对Y坐标进行对数变换
-    var log_y = 1.0-y;
-    //如果a是0就不变换了
-    if a != 0.0 {
-        log_y=log(a * (1.0 - y) + 1.0) / log(a + 1.0);
+    // 辅助函数内联：对给定像素偏移采样
+    // 4x 超采样: 在像素内部采样 4 个点，手动展开循环（WGSL 不支持变量索引数组）
+    var color_sum = vec4<f32>(0.0);
+    
+    // Sample 1: offset (-0.25, -0.25)
+    {
+        let sample_pixel_x = pixel_x - 0.25;
+        let sample_pixel_y = pixel_y - 0.25;
+        let rel_x = (sample_pixel_x - sf.viewport_x) / sf.viewport_width;
+        let rel_y = (sample_pixel_y - sf.viewport_y) / sf.viewport_height;
+        let y_screen = 1.0 - rel_y;
+        let log_space_y = sf.a + y_screen * (sf.b - sf.a);
+        var sample_y = log_space_y;
+        if sf.l > 0.0 {
+            let base = 1.0 + sf.l * 100.0;
+            sample_y = (pow(base, log_space_y) - 1.0) / (base - 1.0);
+        }
+        sample_y = clamp(sample_y, 0.0, 1.0);
+        let shifted_x = fract(rel_x + sf.offset);
+        color_sum = color_sum + textureSample(texture, texture_sampler, vec2<f32>(shifted_x, sample_y));
     }
     
+    // Sample 2: offset (0.25, -0.25)
+    {
+        let sample_pixel_x = pixel_x + 0.25;
+        let sample_pixel_y = pixel_y - 0.25;
+        let rel_x = (sample_pixel_x - sf.viewport_x) / sf.viewport_width;
+        let rel_y = (sample_pixel_y - sf.viewport_y) / sf.viewport_height;
+        let y_screen = 1.0 - rel_y;
+        let log_space_y = sf.a + y_screen * (sf.b - sf.a);
+        var sample_y = log_space_y;
+        if sf.l > 0.0 {
+            let base = 1.0 + sf.l * 100.0;
+            sample_y = (pow(base, log_space_y) - 1.0) / (base - 1.0);
+        }
+        sample_y = clamp(sample_y, 0.0, 1.0);
+        let shifted_x = fract(rel_x + sf.offset);
+        color_sum = color_sum + textureSample(texture, texture_sampler, vec2<f32>(shifted_x, sample_y));
+    }
     
-    // 构建新的UV坐标
-    let new_uv = vec2<f32>(input.uv.x, log_y);
-
-    var temp = vec4(textureSample(texture, texture_sampler, new_uv + vec2f(0.02, 0.0)));
-    // var temp = textureLoad(texture, input.uv, 0);
-    return vec4(temp.xyz, 1.0);
-    // return vec4(texture,1.0);
+    // Sample 3: offset (-0.25, 0.25)
+    {
+        let sample_pixel_x = pixel_x - 0.25;
+        let sample_pixel_y = pixel_y + 0.25;
+        let rel_x = (sample_pixel_x - sf.viewport_x) / sf.viewport_width;
+        let rel_y = (sample_pixel_y - sf.viewport_y) / sf.viewport_height;
+        let y_screen = 1.0 - rel_y;
+        let log_space_y = sf.a + y_screen * (sf.b - sf.a);
+        var sample_y = log_space_y;
+        if sf.l > 0.0 {
+            let base = 1.0 + sf.l * 100.0;
+            sample_y = (pow(base, log_space_y) - 1.0) / (base - 1.0);
+        }
+        sample_y = clamp(sample_y, 0.0, 1.0);
+        let shifted_x = fract(rel_x + sf.offset);
+        color_sum = color_sum + textureSample(texture, texture_sampler, vec2<f32>(shifted_x, sample_y));
+    }
+    
+    // Sample 4: offset (0.25, 0.25)
+    {
+        let sample_pixel_x = pixel_x + 0.25;
+        let sample_pixel_y = pixel_y + 0.25;
+        let rel_x = (sample_pixel_x - sf.viewport_x) / sf.viewport_width;
+        let rel_y = (sample_pixel_y - sf.viewport_y) / sf.viewport_height;
+        let y_screen = 1.0 - rel_y;
+        let log_space_y = sf.a + y_screen * (sf.b - sf.a);
+        var sample_y = log_space_y;
+        if sf.l > 0.0 {
+            let base = 1.0 + sf.l * 100.0;
+            sample_y = (pow(base, log_space_y) - 1.0) / (base - 1.0);
+        }
+        sample_y = clamp(sample_y, 0.0, 1.0);
+        let shifted_x = fract(rel_x + sf.offset);
+        color_sum = color_sum + textureSample(texture, texture_sampler, vec2<f32>(shifted_x, sample_y));
+    }
+    
+    let final_color = color_sum / 4.0;
+    return vec4(final_color.xyz, 1.0);
 }

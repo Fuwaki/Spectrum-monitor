@@ -4,7 +4,7 @@ use std::sync::mpsc;
 
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
-    SampleRate, Stream, SupportedStreamConfig,
+    Stream,
 };
 
 pub struct Audio {
@@ -13,13 +13,30 @@ pub struct Audio {
     tx: mpsc::Sender<Vec<f32>>,
     fftsize: usize,
     fftwindow: FFTWindow,
+    buffer: Vec<f32>,
 }
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FFTWindow {
     Rectangular,
     Hanning,
     Hamming,
     Blackman,
+}
+
+impl std::fmt::Display for FFTWindow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                FFTWindow::Rectangular => "Rectangular",
+
+                FFTWindow::Hanning => "Hanning",
+                FFTWindow::Hamming => "Hamming",
+                FFTWindow::Blackman => "Blackman",
+            }
+        )
+    }
 }
 impl Audio {
     fn create_stream(tx: mpsc::Sender<Vec<f32>>) -> Result<Stream, anyhow::Error> {
@@ -61,6 +78,7 @@ impl Audio {
             tx,
             fftsize: 1024,
             fftwindow: FFTWindow::Hanning,
+            buffer: Vec::new(),
         }
     }
     pub fn start(&mut self)->Result<(),anyhow::Error> {
@@ -127,20 +145,40 @@ impl Audio {
                                                                                             // println!("结果{:?}",magnitudes);
         magnitudes
     }
-    pub fn fetch_data(&self) -> Option<(Vec<f32>, usize)> {
-        static TEMP: std::sync::RwLock<Vec<f32>> = std::sync::RwLock::new(Vec::new());
-
-        let mut temp = TEMP.write().unwrap();
+    pub fn fetch_data(&mut self) -> Option<(Vec<f32>, usize)> {
+        // 1. 将所有新消息读入缓冲区
         while let Ok(mut msg) = self.rx.try_recv() {
-            temp.extend(msg.drain(..));
+            self.buffer.extend(msg.drain(..));
         }
 
-        if temp.len() > self.fftsize {
-            let a: Vec<f32> = temp.drain(0..self.fftsize).collect();
-            return Some((self.do_fft(a), temp.len()));
-        } else {
+        // 2. 如果数据不足一个FFT窗口，返回None
+        if self.buffer.len() < self.fftsize {
             return None;
         }
+
+        // 3. 为了低延迟，我们只取最新的 fftsize 个数据
+        // 如果缓冲区积累了太多数据（比如因为处理变慢），直接丢弃旧数据
+        let start_index = self.buffer.len().saturating_sub(self.fftsize);
+        
+        // 4. 获取用于FFT的数据切片（不需要 drain，保留 buffer 给下一次 overlap ?）
+        // 实际上为了简单和性能，如果我们要 overlap，可以在 buffer 头部保留一些数据
+        // 但这里我们简单点：总是取最新的，然后清空 buffer 到只剩 overlap 部分
+        
+        let window_data = self.buffer[start_index..].to_vec();
+        
+        // 5. 保留一部分数据用于下次重叠 (比如保留最新的 75%)
+        // 这样下次有了新数据后，又能组成一个新的窗口
+        let overlap_size = self.fftsize * 3 / 4;
+        let new_start = self.buffer.len().saturating_sub(overlap_size);
+        
+        // 创建新缓冲区，只包含重叠部分
+        // (比 drain 效率低一点点但逻辑清晰，buffer 一般不大)
+        // 使用 drain 更好：删除前面不需要的数据
+        if new_start > 0 {
+            self.buffer.drain(0..new_start);
+        }
+        
+        return Some((self.do_fft(window_data), self.buffer.len()));
     }
 
     pub fn stop(&mut self) -> () {
