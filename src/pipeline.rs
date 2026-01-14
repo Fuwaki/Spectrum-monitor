@@ -835,6 +835,16 @@ impl shader::Primitive for SpectrumLinePrimitive {
             clip_bounds.height,
         );
 
+        // 设置 viewport，使 NDC 坐标 (-1, +1) 映射到 clip_bounds 区域
+        render_pass.set_viewport(
+            clip_bounds.x as f32,
+            clip_bounds.y as f32,
+            clip_bounds.width as f32,
+            clip_bounds.height as f32,
+            0.0,
+            1.0,
+        );
+
         render_pass.set_pipeline(&pipeline.pipeline);
         render_pass.set_bind_group(0, &pipeline.bind_group, &[]);
         

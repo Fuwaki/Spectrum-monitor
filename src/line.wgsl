@@ -53,7 +53,8 @@ fn spectrum_to_color(value: f32) -> vec3f {
     return hsv2rgb(hue, saturation, brightness);
 }
 
-// 对数变换函数 (Freq -> Screen Y)
+// 对数变换函数 (Freq -> Log Space Y)
+// 与 axis.rs 和 shader.wgsl 保持一致
 fn apply_log_scale(freq: f32) -> f32 {
     let s = uniforms.log_scale;
     if s <= 0.0 {
@@ -62,6 +63,18 @@ fn apply_log_scale(freq: f32) -> f32 {
     let base = 1.0 + s * 100.0;
     // log_base(freq * (base - 1) + 1)
     return log(freq * (base - 1.0) + 1.0) / log(base);
+}
+
+// 逆对数变换函数 (Log Space Y -> Freq)
+// 与 shader.wgsl 的采样逻辑一致
+fn inverse_log_scale(log_y: f32) -> f32 {
+    let s = uniforms.log_scale;
+    if s <= 0.0 {
+        return log_y;
+    }
+    let base = 1.0 + s * 100.0;
+    // (base^log_y - 1) / (base - 1)
+    return (pow(base, log_y) - 1.0) / (base - 1.0);
 }
 
 @vertex
@@ -86,13 +99,18 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOutput {
     let max_index = max(uniforms.data_length - 1u, 1u);
     let freq_normalized = f32(freq_index) / f32(max_index);
     
-    // 应用对数缩放 (Freq -> Global Screen Y)
-    // 必须与 axis.rs 和 shader.wgsl 逻辑一致
-    let global_y = apply_log_scale(freq_normalized);
+    // 坐标变换流程 (与 shader.wgsl 保持一致):
+    // 1. freq_normalized 是线性频率空间 (0-1)
+    // 2. 应用正向对数变换得到 log_space_y (对数空间)
+    // 3. log_space_y 需要映射到视口: scale_a -> 底部(0), scale_b -> 顶部(1)
     
-    // 应用Y轴视口缩放 (Map Global Y to Viewport Y)
-    // scale_a (Bot) -> 0.0, scale_b (Top) -> 1.0
-    let visible_y = (global_y - uniforms.scale_a) / (uniforms.scale_b - uniforms.scale_a);
+    // 应用对数变换 (Freq -> Log Space)
+    let log_space_y = apply_log_scale(freq_normalized);
+    
+    // 应用Y轴视口缩放 (Map Log Space Y to Viewport Y)
+    // log_space_y == scale_a -> visible_y = 0.0 (底部)
+    // log_space_y == scale_b -> visible_y = 1.0 (顶部)
+    let visible_y = (log_space_y - uniforms.scale_a) / (uniforms.scale_b - uniforms.scale_a);
     
     // 转换到NDC坐标
     // Viewport Y: 0.0 (Bottom) -> NDC -1.0

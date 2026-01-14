@@ -67,6 +67,8 @@ enum Message {
     SplitDragStart,
     SplitDragEnd,
     SplitDrag(iced::Point),
+    // 窗口大小变化
+    WindowResized(iced::Size),
 }
 
 struct App {
@@ -92,6 +94,8 @@ struct App {
     // Y轴缩放参数
     scale_a: f32,
     scale_b: f32,
+    // 窗口尺寸（用于计算视口高度）
+    window_size: iced::Size,
 }
 
 impl App {
@@ -113,6 +117,7 @@ impl App {
                 error_msg: None,
                 scale_a: 0.0,
                 scale_b: 1.0,
+                window_size: iced::Size::new(1200.0, 700.0), // 初始窗口大小
             },
             Task::none(),
         )
@@ -177,47 +182,44 @@ impl App {
                 self.last_mouse_pos = None;
             }
             Message::MouseInteraction(mouse::Event::CursorMoved { position }) => {
+                // 计算频谱区域的实际高度 (窗口高度 - 控制面板 - 边距)
+                let spectrum_height = self.window_size.height - 120.0; // 控制面板约100px + 边距
+                
                 if self.is_dragging {
                     if let Some(last_pos) = self.last_mouse_pos {
                         let dy = position.y - last_pos.y;
                         
-                        // 拖拽平移
-                        // 移动距离相对于总高度的比例
-                        let sensitivity = 0.002;
-                        let move_delta = dy * sensitivity * (self.scale_b - self.scale_a);
+                        // 拖拽平移 - 只移动视图，不改变缩放范围
+                        // 移动距离相对于视口高度的比例，映射到当前scale范围
+                        let range = self.scale_b - self.scale_a;
+                        let move_delta = (dy / spectrum_height) * range;
                         
-                        // 向上拖动 (dy < 0) 应该查看更上方的内容 (scale 减小？)
-                        // 屏幕坐标 Y 向下增加。
-                        // scale_a (Bot) -> scale_b (Top)
-                        // 如果 Viewport 往上移，意味着 a 和 b 都增加
-                        // 鼠标向下移 (dy > 0), 视口应该向上移 (内容向下)
-                        
+                        // 鼠标向下拖 (dy > 0) -> 内容向上滚动 -> scale增加
                         let new_a = self.scale_a + move_delta;
                         let new_b = self.scale_b + move_delta;
                         
-                        // 简单的边界检查 (允许稍微拖出一点，但主要保持范围)
-                        if new_a >= -0.1 && new_b <= 1.1 {
-                            self.scale_a = new_a.clamp(0.0, 1.0);
-                            let range = self.scale_b - self.scale_a; // keep old range to avoid drifting size
-                            self.scale_b = (self.scale_a + range).clamp(0.0, 1.0);
-                             // Refresh range just in case clamp changed size
-                             let final_range = self.scale_b - self.scale_a;
-                             if final_range < range - 0.001 {
-                                 // Hitting top
-                                  self.scale_a = self.scale_b - range;
-                             }
-
-                            self.scene.set_scale(self.scale_a, self.scale_b);
+                        // 边界检查，保持范围不变
+                        if new_a >= 0.0 && new_b <= 1.0 {
+                            self.scale_a = new_a;
+                            self.scale_b = new_b;
+                        } else if new_a < 0.0 {
+                            self.scale_a = 0.0;
+                            self.scale_b = range;
+                        } else if new_b > 1.0 {
+                            self.scale_b = 1.0;
+                            self.scale_a = 1.0 - range;
                         }
+                        
+                        self.scene.set_scale(self.scale_a, self.scale_b);
                     }
                     self.last_mouse_pos = Some(position);
                 } else {
-                    // Update mouse position for zoom centering (not strictly needed if we use Cursor directly in Wheel)
-                     self.last_mouse_pos = Some(position);
+                    // 记录鼠标位置，用于滚轮缩放时的中心计算
+                    self.last_mouse_pos = Some(position);
                 }
             }
             Message::MouseInteraction(mouse::Event::WheelScrolled { delta }) => {
-                // 鼠标滚轮缩放Y轴 - 以光标位置为中心
+                // 鼠标滚轮缩放Y轴 - 以鼠标位置为中心
                 const TOUCHPAD_SENSITIVITY: f32 = 0.002;
                 const MOUSEWHEEL_SENSITIVITY: f32 = 0.1;
 
@@ -228,39 +230,43 @@ impl App {
                 
                 if d == 0.0 { return Task::none(); }
 
-                // Determine zoom center based on mouse position
-                // We need to know where the mouse is relative to the element height.
-                // Since we don't have element bounds here easily without more plumbing,
-                // let's assume center zoom or try to get approximate relative pos.
-                // For now, center zoom is safer/simpler or we can use 0.5 as middle.
-                // To do mouse-relative zoom, we'd need to know the widget geometry.
-                // Let's stick to center-based for now or improved center.
-                // Better: Use `last_mouse_pos` if available, but we need widget bounds.
-                // Let's assume the user is focusing on the middle of the current view roughly.
+                // 计算频谱区域的实际高度 (窗口高度 - 控制面板 - 边距)
+                let spectrum_height = self.window_size.height - 120.0;
                 
                 let range = self.scale_b - self.scale_a;
                 
-                // If we want to zoom in (d > 0), range decreases.
+                // 计算鼠标在视口中的相对位置 (0=顶部, 1=底部)
+                let relative_y = if let Some(pos) = self.last_mouse_pos {
+                    (pos.y / spectrum_height).clamp(0.0, 1.0)
+                } else {
+                    0.5 // 默认中心
+                };
+                
+                // 将相对Y位置转换为scale空间中的位置
+                // 屏幕顶部(y=0) -> scale_b (高频), 屏幕底部(y=height) -> scale_a (低频)
+                let zoom_center = self.scale_b - relative_y * range;
+                
+                // 计算新的范围 (d > 0 放大，范围减小)
                 let new_range = (range * (1.0 - d * 0.5)).clamp(0.001, 1.0);
                 
-                // Calculate center (could be customizable)
-                let center = (self.scale_a + self.scale_b) / 2.0;
-
-                let half_range = new_range / 2.0;
-                let mut new_a = center - half_range;
-                let mut new_b = center + half_range;
+                // 以鼠标位置为中心计算新的边界
+                // 保持鼠标指向的频率在新视图中的相对位置不变
+                let new_a = zoom_center - (1.0 - relative_y) * new_range;
+                let new_b = zoom_center + relative_y * new_range;
                 
-                // Clamp to [0, 1] but try to maintain range size
-                if new_a < 0.0 {
-                    new_a = 0.0;
-                    new_b = new_range;
+                // 边界调整 - 优先保持鼠标位置不变
+                let (final_a, final_b) = if new_a < 0.0 {
+                    // 碰到下边界，调整但尝试保持缩放中心
+                    (0.0, new_range.min(1.0))
                 } else if new_b > 1.0 {
-                    new_b = 1.0;
-                    new_a = 1.0 - new_range;
-                }
+                    // 碰到上边界
+                    ((1.0 - new_range).max(0.0), 1.0)
+                } else {
+                    (new_a, new_b)
+                };
                 
-                self.scale_a = new_a.clamp(0.0, 1.0);
-                self.scale_b = new_b.clamp(0.0, 1.0);
+                self.scale_a = final_a;
+                self.scale_b = final_b;
                 
                 self.scene.set_scale(self.scale_a, self.scale_b);
             }
@@ -272,13 +278,10 @@ impl App {
             }
             Message::SplitDrag(position) => {
                 if self.is_split_dragging {
-                    // 假设频率轴宽度约为 50px，计算有效区域
-                    // position.x 是相对于整个窗口的位置
-                    // 我们需要计算相对于图表区域的比例
-                    // 粗略估计：窗口宽度减去边距和频率轴
+                    // 使用实际窗口宽度计算
                     let axis_width = 50.0;
-                    let padding = 20.0; // 左右边距
-                    let available_width = 1200.0 - axis_width - padding * 2.0; // 假设窗口宽度
+                    let padding = 20.0;
+                    let available_width = self.window_size.width - axis_width - padding * 2.0;
                     let relative_x = position.x - axis_width - padding;
                     
                     if available_width > 0.0 && relative_x > 0.0 {
@@ -286,6 +289,9 @@ impl App {
                         self.spectrum_ratio = ratio;
                     }
                 }
+            }
+            Message::WindowResized(size) => {
+                self.window_size = size;
             }
             _ => {}
         }
@@ -618,12 +624,16 @@ impl App {
         Subscription::batch([
             // 60fps 定时刷新
             time::every(Duration::from_millis(16)).map(Message::Tick),
-            // 键盘事件
+            // 键盘和窗口事件
             event::listen_with(|event, _status, _id| {
-                if let Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) = event {
-                    Some(Message::KeyPressed(key))
-                } else {
-                    None
+                match event {
+                    Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) => {
+                        Some(Message::KeyPressed(key))
+                    }
+                    Event::Window(window::Event::Resized(size)) => {
+                        Some(Message::WindowResized(size))
+                    }
+                    _ => None,
                 }
             }),
         ])
